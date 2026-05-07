@@ -24,15 +24,17 @@ const errorMiddleware = require(
 const dashboardRoutes =
   require("./routes/dashboard.routes");
 
-  const swaggerUi =
+const swaggerUi =
   require("swagger-ui-express");
 
 const swaggerSpec =
   require("./config/swagger");
+
+const errorHandler =
+  require("./middleware/error.middleware");
 //------------------------------------------------------\\
 app.use(cors());
 app.use(express.json());
-
 app.use("/api/auth", authRoutes);
 app.use("/api/test", testRoutes);
 app.use("/api/categories", categoryRoutes);
@@ -41,14 +43,11 @@ app.use("/api/borrow", borrowRoutes);
 app.use(errorMiddleware);
 app.use("/api/dashboard", dashboardRoutes);
 app.use(
-
   "/api/docs",
-
   swaggerUi.serve,
-
   swaggerUi.setup(swaggerSpec)
-
 );
+app.use(errorHandler);
 
 //----------------------------------------------------------\\
 app.get("/", (req, res) => {

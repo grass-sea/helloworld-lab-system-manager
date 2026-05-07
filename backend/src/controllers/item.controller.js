@@ -1,98 +1,64 @@
-const prisma = require("../config/prisma");
-
-
+const itemService = require("../services/item.service");
 
 const createItem = async (req, res) => {
 
   try {
 
-    const {
-      name,
-      categoryId,
-      type,
-      location,
-      quantity,
-      minimumLevel
-    } = req.body;
+    const item =
+      await itemService.createItem(
+        req.body
+      );
 
+    res.status(201).json({
 
-
-    const item = await prisma.item.create({
-
-      data: {
-
-        name,
-
-        categoryId,
-
-        type,
-
-        location,
-
-        stock: {
-
-          create: {
-            quantity,
-            minimumLevel
-          }
-
-        }
-
-      },
-
-      include: {
-        stock: true,
-        category: true
-      }
+      success: true,
+      data: item
 
     });
-
-
-
-    res.status(201).json(item);
 
   } catch (error) {
 
     res.status(500).json({
-      error: error.message
+
+      success: false,
+      message: error.message
+
     });
 
   }
 
 };
-
-
 
 const getItems = async (req, res) => {
 
   try {
 
-    const items = await prisma.item.findMany({
+    const items =
+      await itemService.getItems();
 
-      include: {
-        stock: true,
-        category: true
-      }
+    res.json({
+
+      success: true,
+      data: items
 
     });
-
-
-
-    res.json(items);
 
   } catch (error) {
 
     res.status(500).json({
-      error: error.message
+
+      success: false,
+      message: error.message
+
     });
 
   }
 
 };
 
-
-
 module.exports = {
+
   createItem,
   getItems
+
 };
