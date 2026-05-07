@@ -2,6 +2,11 @@ const express = require("express");
 
 const router = express.Router();
 
+const {
+  createItem,
+  getItems
+} = require("../controllers/item.controller");
+
 const authMiddleware = require(
   "../middleware/auth.middleware"
 );
@@ -12,32 +17,19 @@ const roleMiddleware = require(
 
 
 
-router.get(
-  "/profile",
+router.post(
+  "/",
   authMiddleware,
-  (req, res) => {
-
-    res.json({
-      message: "Protected route success",
-      user: req.user
-    });
-
-  }
+  roleMiddleware("ADMIN"),
+  createItem
 );
 
 
 
 router.get(
-  "/admin",
+  "/",
   authMiddleware,
-  roleMiddleware("ADMIN"),
-  (req, res) => {
-
-    res.json({
-      message: "Welcome admin"
-    });
-
-  }
+  getItems
 );
 
 
