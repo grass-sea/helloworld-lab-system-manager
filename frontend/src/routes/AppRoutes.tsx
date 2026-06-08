@@ -45,22 +45,22 @@ export default function AppRoutes() {
 
       {/* ================= ROUTES CỦA STUDENT ================= */}
       <Route path="/dashboard" element={
-        <ProtectedRoute allowedRoles={["STUDENT", "LECTURER", "RESEARCHER"]}>
+        <ProtectedRoute allowedRoles={["BORROWER", "STUDENT", "LECTURER", "RESEARCHER"]}>
           <StudentDashboard />
         </ProtectedRoute>
       } />
       <Route path="/equipment" element={
-        <ProtectedRoute allowedRoles={["STUDENT", "LECTURER", "RESEARCHER"]}>
+        <ProtectedRoute allowedRoles={["BORROWER", "STUDENT", "LECTURER", "RESEARCHER"]}>
           <EquipmentPage />
         </ProtectedRoute>
       } />
       <Route path="/history" element={
-        <ProtectedRoute allowedRoles={["STUDENT", "LECTURER", "RESEARCHER"]}>
+        <ProtectedRoute allowedRoles={["BORROWER", "STUDENT", "LECTURER", "RESEARCHER"]}>
           <HistoryPage />
         </ProtectedRoute>
       } />
       <Route path="/debt" element={
-        <ProtectedRoute allowedRoles={["STUDENT", "LECTURER", "RESEARCHER"]}>
+        <ProtectedRoute allowedRoles={["BORROWER", "STUDENT", "LECTURER", "RESEARCHER"]}>
           <DebtPage />
         </ProtectedRoute>
       } />

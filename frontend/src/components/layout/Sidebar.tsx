@@ -40,7 +40,7 @@ export default function Sidebar() {
     { path: "/staff/students", label: "Manage Students", icon: Users },
   ];
 
-  const currentMenus = user?.role === "STAFF" ? staffMenus : studentMenus;
+  const currentMenus = user?.role === "STAFF" || user?.role === "ADMIN" ? staffMenus : studentMenus;
 
   return (
     <>

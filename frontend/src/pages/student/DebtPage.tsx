@@ -15,7 +15,12 @@ export default function DebtPage() {
       try {
         const res = await axiosInstance.get('/fines');
         // Lọc ra các khoản phạt đúng với tài khoản đăng nhập hiện tại
-        const myFines = res.data.filter((f: any) => f.borrower === user?.name || f.borrower === user?.username);
+        const myFines = res.data.filter(
+          (f: any) =>
+            f.borrower_code === user?.borrowerCode ||
+            f.borrower === user?.name ||
+            f.borrower === user?.username
+        );
         
         const mapped = myFines.map((item: any, idx: number) => ({
           id: `F${idx}`,

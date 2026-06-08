@@ -1,15 +1,32 @@
-// Cập nhật lại types/request.ts cho khớp với SQL mới
-export interface BorrowRequest {
-  request_id: number;
-  borrower: {
-    full_name: string;
-    borrower_code: string;
-  };
-  request_date: string;
-  expected_return_date: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
-  items: Array<{
-    item_name: string;
-    quantity: number;
-  }>;
+export type BorrowRequestStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "COMPLETED";
+
+export interface BorrowRequestItem {
+  borrow_item_id?: number;
+  item_name: string;
+  quantity: number;
+  status?: BorrowRequestStatus;
 }
+
+export interface BorrowRequest {
+  id: number;
+  borrower: string;
+  borrower_code?: string;
+  request_date: string;
+  expected_return_date?: string;
+  status: BorrowRequestStatus;
+  items?: BorrowRequestItem[];
+}
+
+export interface BorrowRequestRow {
+  id: number;
+  studentName: string;
+  equipment: string;
+  requestDate: string;
+  status: BorrowRequestStatus;
+}
+
+export type Request = BorrowRequestRow;

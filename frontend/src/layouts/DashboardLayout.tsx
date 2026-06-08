@@ -5,9 +5,12 @@ import {
   LayoutDashboard, PackageSearch, History, WalletCards, 
   LogOut, Users, FileText, Database, ShieldAlert
 } from "lucide-react";
+import LanguageSelector from "../components/common/LanguageSelector";
+import { useI18n } from "../context/I18nContext";
 
 export default function DashboardLayout({ children }: { children?: ReactNode }) {
   const { user, logout } = useApp();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -15,24 +18,24 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
 
   // Menu Động dựa trên Role
   const studentMenu = [
-    { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-    { name: "Equipment", path: "/equipment", icon: PackageSearch },
-    { name: "History", path: "/history", icon: History },
-    { name: "Debts & Fines", path: "/debt", icon: WalletCards },
+    { name: t("dashboard"), path: "/dashboard", icon: LayoutDashboard },
+    { name: t("equipment"), path: "/equipment", icon: PackageSearch },
+    { name: t("history"), path: "/history", icon: History },
+    { name: t("debts"), path: "/debt", icon: WalletCards },
   ];
 
   const staffMenu = [
-    { name: "Overview", path: "/staff", icon: LayoutDashboard },
-    { name: "Equipment", path: "/staff/equipment", icon: Database },
-    { name: "Requests", path: "/staff/requests", icon: FileText },
-    { name: "Students", path: "/staff/students", icon: Users },
-    { name: "Fines", path: "/staff/debts", icon: ShieldAlert },
+    { name: t("overview"), path: "/staff", icon: LayoutDashboard },
+    { name: t("equipment"), path: "/staff/equipment", icon: Database },
+    { name: t("requests"), path: "/staff/requests", icon: FileText },
+    { name: t("students"), path: "/staff/students", icon: Users },
+    { name: t("fines"), path: "/staff/debts", icon: ShieldAlert },
   ];
 
   const menuItems = isStaff ? staffMenu : studentMenu;
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/login");
   };
 
@@ -47,7 +50,7 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
             </div>
             <div>
               <h1 className="font-black text-lg tracking-tight leading-tight">HUST Lab</h1>
-              <p className="text-2xs font-bold text-gray-400 uppercase tracking-wider">{isStaff ? "Staff Portal" : "Student Portal"}</p>
+              <p className="text-2xs font-bold text-gray-400 uppercase tracking-wider">{isStaff ? t("staffPortal") : t("studentPortal")}</p>
             </div>
           </div>
 
@@ -88,13 +91,20 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors"
           >
-            <LogOut size={16} /> Logout
+            <LogOut size={16} /> {t("logout")}
           </button>
         </div>
       </div>
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 overflow-auto bg-[#F7F8FA]">
+        <div className="sticky top-0 z-20 flex justify-end gap-3 border-b border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
+          <LanguageSelector />
+          <div className="flex items-center gap-2 rounded-full border border-[#A5001A]/20 bg-[#A5001A]/10 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-[#A5001A]">
+            <span>{t("role")}</span>
+            <span className="rounded-full bg-white px-2 py-0.5 shadow-sm">{user?.role || "GUEST"}</span>
+          </div>
+        </div>
         <div className="max-w-7xl mx-auto p-8">
           {children}
         </div>

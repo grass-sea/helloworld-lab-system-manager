@@ -8,9 +8,9 @@ export default function HistoryPage() {
 
   useEffect(() => {
     const fetchHistory = async () => {
-      if (!user?.username) return;
+      if (!user?.borrowerCode) return;
       try {
-        const res = await axiosInstance.get(`/borrowers/${user.username}/history`);
+        const res = await axiosInstance.get(`/borrowers/${user.borrowerCode}/history`);
         const mapped = res.data.map((item: any) => ({
           id: `${item.request_id}_${item.item_name}_${Math.random()}`,
           equipment: item.item_name,

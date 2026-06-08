@@ -1,25 +1,25 @@
-// src/pages/staff/RequestManagementPage.tsx
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import BorrowRequestTable from "../../components/tables/BorrowRequestTable";
 import axiosInstance from "../../api/axios";
+import type { BorrowRequest, BorrowRequestRow } from "../../types/request";
+
+const toRow = (item: BorrowRequest): BorrowRequestRow => ({
+  id: item.id,
+  studentName: item.borrower,
+  equipment: item.items?.map((requestItem) => `${requestItem.item_name} x${requestItem.quantity}`).join(", ") || "No items",
+  requestDate: item.request_date.split("T")[0],
+  status: item.status,
+});
 
 export default function RequestManagementPage() {
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<BorrowRequestRow[]>([]);
 
-  // KẾT NỐI API: Fetch danh sách đơn mượn
   const fetchRequests = async () => {
     try {
-      const res = await axiosInstance.get('/borrow-requests');
-      const mapped = res.data.map((item: any) => ({
-        id: item.id,
-        studentName: item.borrower,
-        equipment: "Cáp nối / Module", // Hiện backend trả thiếu field này, hiển thị tạm thời
-        requestDate: item.request_date.split('T')[0],
-        status: item.status
-      }));
-      setRequests(mapped);
+      const res = await axiosInstance.get("/borrow-requests");
+      setRequests(res.data.map(toRow));
     } catch (error) {
-      console.error("Lỗi fetch requests:", error);
+      console.error("Failed to fetch requests:", error);
     }
   };
 
@@ -27,29 +27,23 @@ export default function RequestManagementPage() {
     fetchRequests();
   }, []);
 
-  // KẾT NỐI API: Duyệt đơn
-  const handleApprove = async (requestItem: any) => {
+  const handleApprove = async (requestItem: BorrowRequestRow) => {
     try {
       await axiosInstance.post(`/borrow-requests/${requestItem.id}/approve`);
-      fetchRequests(); // Tải lại bảng sau khi duyệt xong
-    } catch (error) {
-      console.error("Lỗi approve:", error);
-      alert("Không thể duyệt đơn này (Thiếu số lượng trong kho)!");
+      await fetchRequests();
+    } catch (error: any) {
+      console.error("Failed to approve request:", error);
+      alert(error.response?.data?.detail || "Cannot approve this request.");
     }
   };
 
-  // KẾT NỐI API: Từ chối
-  const handleReject = async (requestItem: any) => {
+  const handleReject = async (requestItem: BorrowRequestRow) => {
     try {
-      // Backend của bạn hiện chưa có API reject rõ ràng, giả sử gọi API PUT để đổi status
-      // await axiosInstance.put(`/borrow-requests/${requestItem.id}`, { status: "REJECTED" });
-      
-      // Update state cục bộ nếu API chưa sẵn sàng
-      setRequests((prev) =>
-        prev.map((item) => item.id === requestItem.id ? { ...item, status: "REJECTED" } : item)
-      );
-    } catch (error) {
-      console.error("Lỗi reject:", error);
+      await axiosInstance.post(`/borrow-requests/${requestItem.id}/reject`);
+      await fetchRequests();
+    } catch (error: any) {
+      console.error("Failed to reject request:", error);
+      alert(error.response?.data?.detail || "Cannot reject this request.");
     }
   };
 
@@ -60,11 +54,7 @@ export default function RequestManagementPage() {
         <p className="text-gray-500 text-sm mt-1">Approve or reject laboratory equipment borrowing requests</p>
       </div>
 
-      <BorrowRequestTable
-        requests={requests}
-        onApprove={handleApprove}
-        onReject={handleReject}
-      />
+      <BorrowRequestTable requests={requests} onApprove={handleApprove} onReject={handleReject} />
     </div>
   );
 }

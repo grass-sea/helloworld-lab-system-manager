@@ -1,10 +1,10 @@
-import type { BorrowRequest } from "../../types/request";
+import type { BorrowRequestRow } from "../../types/request";
 import StatusBadge from "../common/StatusBadge"; 
 
 interface Props {
-  requests: BorrowRequest[];
-  onApprove: (item: BorrowRequest) => void;
-  onReject: (item: BorrowRequest) => void;
+  requests: BorrowRequestRow[];
+  onApprove: (item: BorrowRequestRow) => void;
+  onReject: (item: BorrowRequestRow) => void;
 }
 
 export default function BorrowRequestTable({

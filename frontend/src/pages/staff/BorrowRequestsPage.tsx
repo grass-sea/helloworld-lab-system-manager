@@ -2,10 +2,10 @@ import { useState } from "react";
 import SearchBar from "../../components/common/SearchBar";
 import BorrowRequestTable from "../../components/tables/BorrowRequestTable";
 import { requestMock } from "../../mock/request";
-import type { BorrowRequest } from "../../types/request";
+import type { BorrowRequestRow } from "../../types/request";
 
 export default function BorrowRequestsPage() {
-  const [requests, setRequests] = useState<BorrowRequest[]>(requestMock);
+  const [requests, setRequests] = useState<BorrowRequestRow[]>(requestMock);
   const [search, setSearch] = useState("");
 
   // Bộ lọc tìm kiếm theo tên sinh viên (không phân biệt hoa thường)
@@ -14,7 +14,7 @@ export default function BorrowRequestsPage() {
   );
 
   // Xử lý nút Approve (Phê duyệt)
-  const handleApprove = (request: BorrowRequest) => {
+  const handleApprove = (request: BorrowRequestRow) => {
     setRequests((prevRequests) =>
       prevRequests.map((item) =>
         item.id === request.id ? { ...item, status: "APPROVED" as const } : item
@@ -23,7 +23,7 @@ export default function BorrowRequestsPage() {
   };
 
   // Xử lý nút Reject (Từ chối)
-  const handleReject = (request: BorrowRequest) => {
+  const handleReject = (request: BorrowRequestRow) => {
     setRequests((prevRequests) =>
       prevRequests.map((item) =>
         item.id === request.id ? { ...item, status: "REJECTED" as const } : item

@@ -97,7 +97,7 @@ export default function StudentManagementPage() {
   // KẾT NỐI API: Đổi trạng thái (Block/Unblock)
   const executeToggleStatus = async (studentId: string, newStatus: string) => {
     try {
-      await axiosInstance.put(`/borrowers/${studentId}`, {
+      await axiosInstance.patch(`/borrowers/${studentId}/status`, {
         status: newStatus
       });
       fetchStudents();

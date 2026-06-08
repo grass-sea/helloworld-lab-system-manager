@@ -6,11 +6,11 @@ import BorrowRequestTable from "../../components/tables/BorrowRequestTable";
 
 import { requestMock } from "../../mock/request";
 
-import type { BorrowRequest } from "../../types/request";
+import type { BorrowRequestRow } from "../../types/request";
 
 export default function BorrowRequestPage() {
   const [requests, setRequests] =
-    useState<BorrowRequest[]>(
+    useState<BorrowRequestRow[]>(
       requestMock
     );
 
@@ -27,7 +27,7 @@ export default function BorrowRequestPage() {
     );
 
   const handleApprove = (
-    request: BorrowRequest
+    request: BorrowRequestRow
   ) => {
     setRequests(
       requests.map((item) =>
@@ -42,7 +42,7 @@ export default function BorrowRequestPage() {
   };
 
   const handleReject = (
-    request: BorrowRequest
+    request: BorrowRequestRow
   ) => {
     setRequests(
       requests.map((item) =>

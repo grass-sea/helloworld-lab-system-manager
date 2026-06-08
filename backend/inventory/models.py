@@ -1,6 +1,18 @@
+from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
-class Category(models.Model):
+
+class TimeStampedModel(models.Model):
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class Category(TimeStampedModel):
     name = models.CharField(
         max_length=100
     )
@@ -13,7 +25,7 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-class Supplier(models.Model):
+class Supplier(TimeStampedModel):
     supplier_name = models.CharField(max_length=150)
 
     contact_name = models.CharField(
@@ -42,7 +54,7 @@ class Supplier(models.Model):
     def __str__(self):
         return self.supplier_name
 
-class Item(models.Model):
+class Item(TimeStampedModel):
 
     item_code = models.CharField(
         max_length=50,
@@ -97,7 +109,7 @@ class Item(models.Model):
     def __str__(self):
         return self.item_name
     
-class Room(models.Model):  
+class Room(TimeStampedModel):  
     room_code = models.CharField(
         max_length=50,
         unique=True
@@ -116,7 +128,7 @@ class Room(models.Model):
     def __str__(self):
         return self.room_name
     
-class Borrower(models.Model):
+class Borrower(TimeStampedModel):
     BORROWER_TYPES = [
         ("STUDENT", "Student"),
         ("LECTURER", "Lecturer"),
@@ -142,15 +154,13 @@ class Borrower(models.Model):
     def __str__(self):
         return f"{self.borrower_code} - {self.full_name}"
     
-class BorrowRequest(models.Model):
+class BorrowRequest(TimeStampedModel):
 
     STATUS_CHOICES = [
         ("PENDING", "Pending"),
         ("APPROVED", "Approved"),
         ("REJECTED", "Rejected"),
-        ("BORROWED", "Borrowed"),
-        ("RETURNED", "Returned"),
-        ("OVERDUE", "Overdue"),
+        ("COMPLETED", "Completed"),
     ]
 
     borrower = models.ForeignKey(
@@ -178,7 +188,7 @@ class BorrowRequest(models.Model):
     def __str__(self):
         return f"Request #{self.id}"
 
-class BorrowRequestItem(models.Model):
+class BorrowRequestItem(TimeStampedModel):
     request = models.ForeignKey(
         BorrowRequest,
         on_delete=models.CASCADE,
@@ -197,8 +207,8 @@ class BorrowRequestItem(models.Model):
     STATUS_CHOICES = [
         ("PENDING", "Pending"),
         ("APPROVED", "Approved"),
-        ("BORROWED", "Borrowed"),
-        ("RETURNED", "Returned"),
+        ("REJECTED", "Rejected"),
+        ("COMPLETED", "Completed"),
     ]
 
     status = models.CharField(
@@ -207,10 +217,15 @@ class BorrowRequestItem(models.Model):
         default="PENDING"
     )
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="borrow_request_item_quantity_gt_0"),
+        ]
+
     def __str__(self):
         return f"{self.item.item_name} ({self.quantity})"
 
-class ReturnRecord(models.Model):
+class ReturnRecord(TimeStampedModel):
     request = models.ForeignKey(
         BorrowRequest,
         on_delete=models.CASCADE
@@ -225,7 +240,7 @@ class ReturnRecord(models.Model):
         null=True
     )
 
-class ReturnRecordItem(models.Model):
+class ReturnRecordItem(TimeStampedModel):
 
     CONDITION_CHOICES = [
         ("GOOD", "Good"),
@@ -257,7 +272,14 @@ class ReturnRecordItem(models.Model):
         default=0
     )
 
-class MaintenanceRecord(models.Model):
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="return_record_item_quantity_gt_0"),
+            models.CheckConstraint(condition=Q(fine_amount__gte=0), name="return_record_item_fine_gte_0"),
+        ]
+
+
+class MaintenanceRecord(TimeStampedModel):
 
     item = models.ForeignKey(
         Item,
@@ -279,7 +301,7 @@ class MaintenanceRecord(models.Model):
         null=True
     )
 
-class ItemStock(models.Model):
+class ItemStock(TimeStampedModel):
 
     room = models.ForeignKey(
         Room,
@@ -301,11 +323,89 @@ class ItemStock(models.Model):
 
     class Meta:
         unique_together = ("room", "item")
+        indexes = [
+            models.Index(fields=["item", "room"]),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(total_quantity__gte=0), name="item_stock_total_gte_0"),
+            models.CheckConstraint(condition=Q(available_quantity__gte=0), name="item_stock_available_gte_0"),
+            models.CheckConstraint(
+                condition=Q(available_quantity__lte=models.F("total_quantity")),
+                name="item_stock_available_lte_total",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.room.room_name} - {self.item.item_name}"
+
+
+class StockTransaction(TimeStampedModel):
+    TRANSACTION_TYPES = [
+        ("APPROVE", "Approve"),
+        ("RETURN", "Return"),
+        ("ADJUST", "Adjust"),
+    ]
+
+    item = models.ForeignKey(Item, on_delete=models.CASCADE)
+    stock = models.ForeignKey(ItemStock, on_delete=models.CASCADE, null=True, blank=True)
+    borrow_request = models.ForeignKey(BorrowRequest, on_delete=models.SET_NULL, null=True, blank=True)
+    borrow_item = models.ForeignKey(BorrowRequestItem, on_delete=models.SET_NULL, null=True, blank=True)
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    quantity_delta = models.IntegerField()
+    available_before = models.PositiveIntegerField()
+    available_after = models.PositiveIntegerField()
+    note = models.TextField(blank=True, null=True)
+    username = models.CharField(max_length=100, blank=True, default="")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["item", "created_at"]),
+            models.Index(fields=["transaction_type", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.transaction_type} {self.item.item_name} ({self.quantity_delta})"
+
+
+class Debt(TimeStampedModel):
+    STATUS_CHOICES = [
+        ("UNPAID", "Unpaid"),
+        ("PAID", "Paid"),
+    ]
+
+    borrower = models.ForeignKey(Borrower, on_delete=models.CASCADE)
+    borrow_item = models.ForeignKey(BorrowRequestItem, on_delete=models.PROTECT)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="UNPAID")
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_debts",
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["borrower", "status"]),
+            models.Index(fields=["borrow_item"]),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="debt_amount_gt_0"),
+        ]
+
+    def mark_paid(self):
+        self.status = "PAID"
+        self.paid_at = timezone.now()
+        self.save(update_fields=["status", "paid_at", "updated_at"])
+
+    def __str__(self):
+        return f"{self.borrower.borrower_code} - {self.borrow_item.item.item_name} - {self.amount}"
     
-class Notification(models.Model):
+
+class Notification(TimeStampedModel):
 
     borrower = models.ForeignKey(
         Borrower,
@@ -320,10 +420,6 @@ class Notification(models.Model):
 
     content = models.TextField()
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
-
     is_read = models.BooleanField(
         default=False
     )
@@ -331,7 +427,7 @@ class Notification(models.Model):
     def __str__(self):
         return self.title
     
-class UserProfile(models.Model):
+class UserProfile(TimeStampedModel):
 
     ROLE_CHOICES = [
         ("ADMIN", "Admin"),
@@ -359,14 +455,10 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.role}"
     
-class AuditLog(models.Model):
+class AuditLog(TimeStampedModel):
 
     action = models.CharField(
         max_length=200
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True
     )
 
     username = models.CharField(

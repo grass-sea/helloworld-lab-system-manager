@@ -11,6 +11,7 @@ export default function StatusBadge({ status }: Props) {
     PENDING: "bg-amber-100 text-amber-700 font-semibold",
     APPROVED: "bg-green-100 text-green-700 font-semibold",
     REJECTED: "bg-rose-100 text-rose-700 font-semibold",
+    COMPLETED: "bg-sky-100 text-sky-700 font-semibold",
     PROCESSED: "bg-amber-50 text-amber-600 font-bold border border-amber-200", 
     ACTIVE: "bg-green-100 text-green-700 font-semibold",   
     BLOCKED: "bg-rose-100 text-rose-700 font-semibold",    

@@ -1,10 +1,9 @@
-import { api } from "./axios";
+import api from "./axios";
 
-export const getBorrowRequests = () =>
-  api.get("/requests");
+export const getBorrowRequests = () => api.get("/borrow-requests");
 
-export const approveRequest = (id: string) =>
-  api.put(`/requests/${id}/approve`);
+export const approveRequest = (id: number) =>
+  api.post(`/borrow-requests/${id}/approve`);
 
-export const declineRequest = (id: string) =>
-  api.put(`/requests/${id}/decline`);
+export const declineRequest = (id: number) =>
+  api.post(`/borrow-requests/${id}/reject`);

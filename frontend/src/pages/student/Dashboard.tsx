@@ -14,10 +14,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      if (!user?.username) return;
+      if (!user?.borrowerCode) return;
       try {
         // Lấy lịch sử mượn
-        const histRes = await axiosInstance.get(`/borrowers/${user.username}/history`);
+        const histRes = await axiosInstance.get(`/borrowers/${user.borrowerCode}/history`);
         const historyData = histRes.data;
         
         // Map lại dữ liệu cho bảng Recent Activities
@@ -34,7 +34,7 @@ export default function Dashboard() {
         const borrowedCount = historyData.filter((r: any) => r.borrow_request_status === "BORROWED").length;
         
         // Lấy tổng nợ
-        const debtRes = await axiosInstance.get(`/borrowers/${user.username}/debt`);
+        const debtRes = await axiosInstance.get(`/borrowers/${user.borrowerCode}/debt`);
         
         setStats({
           pending: pendingCount,

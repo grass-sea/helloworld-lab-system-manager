@@ -46,7 +46,7 @@ export default function EquipmentPage() {
   const availableCount = equipment.filter((e) => e.status === "AVAILABLE").length;
 
   const handleConfirmBorrow = async () => {
-    if (!selectedEquipment || !user?.username) return;
+    if (!selectedEquipment || !user?.borrowerCode) return;
     try {
       // Set cứng ngày trả đồ là 7 ngày sau
       const tomorrow = new Date();
@@ -54,7 +54,7 @@ export default function EquipmentPage() {
       const returnDate = tomorrow.toISOString().split('T')[0];
 
       // 1. Lấy ID của Sinh viên
-      const borrowerRes = await axiosInstance.get(`/borrowers/${user.username}`);
+      const borrowerRes = await axiosInstance.get(`/borrowers/${user.borrowerCode}`);
       const borrowerId = borrowerRes.data.id;
 
       // 2. Gọi API tạo phiếu mượn
