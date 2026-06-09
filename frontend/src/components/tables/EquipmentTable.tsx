@@ -24,7 +24,15 @@ export default function EquipmentTable({
             </th>
 
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Quantity
+              Available
+            </th>
+
+            <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Supplier
+            </th>
+
+            <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Return
             </th>
 
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -63,7 +71,15 @@ export default function EquipmentTable({
                 </td>
 
                 <td className="p-4 text-sm text-gray-600">
-                  {item.quantity}
+                  {item.availableQuantity ?? item.quantity}
+                </td>
+
+                <td className="p-4 text-sm text-gray-600">
+                  {item.supplier || "N/A"}
+                </td>
+
+                <td className="p-4 text-sm text-gray-600">
+                  {item.requiresReturn ? "Required" : "Purchase"}
                 </td>
 
                 <td className="p-4">

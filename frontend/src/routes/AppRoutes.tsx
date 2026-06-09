@@ -20,7 +20,11 @@ import DebtManagementPage from "../pages/staff/DebtManagementPage";
 
 // Component Bảo vệ Route chuẩn hóa kiểu dữ liệu ReactNode
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: string[] }) => {
-  const { user } = useApp();
+  const { user, authLoading } = useApp();
+  
+  if (authLoading) {
+    return <div className="min-h-screen grid place-items-center text-sm font-semibold text-gray-500">Loading session...</div>;
+  }
   
   if (!user) {
     return <Navigate to="/login" replace />;

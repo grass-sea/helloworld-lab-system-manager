@@ -19,6 +19,7 @@ export interface LoginResult {
 
 interface AppContextType {
   user: User | null;
+  authLoading: boolean;
   login: (username: string, password: string, targetPortal: "BORROWER" | "STAFF") => Promise<LoginResult>;
   logout: () => Promise<void>;
 }
@@ -27,6 +28,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -43,6 +45,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         setUser(null);
+      } finally {
+        setAuthLoading(false);
       }
     };
 
@@ -93,7 +97,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AppContext.Provider value={{ user, login, logout }}>
+    <AppContext.Provider value={{ user, authLoading, login, logout }}>
       {children}
     </AppContext.Provider>
   );

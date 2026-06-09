@@ -9,6 +9,8 @@ export interface BorrowRequestItem {
   item_name: string;
   quantity: number;
   status?: BorrowRequestStatus;
+  requires_return?: boolean;
+  purchase_price?: number;
 }
 
 export interface BorrowRequest {
@@ -18,6 +20,7 @@ export interface BorrowRequest {
   request_date: string;
   expected_return_date?: string;
   status: BorrowRequestStatus;
+  is_overdue?: boolean;
   items?: BorrowRequestItem[];
 }
 

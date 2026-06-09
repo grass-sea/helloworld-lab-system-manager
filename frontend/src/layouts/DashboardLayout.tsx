@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { 
@@ -7,27 +7,49 @@ import {
 } from "lucide-react";
 import LanguageSelector from "../components/common/LanguageSelector";
 import { useI18n } from "../context/I18nContext";
+import axiosInstance from "../api/axios";
+
+interface MenuItem {
+  name: string;
+  path: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  badge?: number;
+}
 
 export default function DashboardLayout({ children }: { children?: ReactNode }) {
   const { user, logout } = useApp();
   const { t } = useI18n();
   const navigate = useNavigate();
   const location = useLocation();
+  const [pendingRequests, setPendingRequests] = useState(0);
 
   const isStaff = user?.role === "STAFF" || user?.role === "ADMIN";
 
+  useEffect(() => {
+    const fetchPending = async () => {
+      if (!isStaff) return;
+      try {
+        const res = await axiosInstance.get("/dashboard-v2");
+        setPendingRequests(res.data.pending_requests || 0);
+      } catch {
+        setPendingRequests(0);
+      }
+    };
+    fetchPending();
+  }, [isStaff, location.pathname]);
+
   // Menu Động dựa trên Role
-  const studentMenu = [
+  const studentMenu: MenuItem[] = [
     { name: t("dashboard"), path: "/dashboard", icon: LayoutDashboard },
     { name: t("equipment"), path: "/equipment", icon: PackageSearch },
     { name: t("history"), path: "/history", icon: History },
     { name: t("debts"), path: "/debt", icon: WalletCards },
   ];
 
-  const staffMenu = [
+  const staffMenu: MenuItem[] = [
     { name: t("overview"), path: "/staff", icon: LayoutDashboard },
     { name: t("equipment"), path: "/staff/equipment", icon: Database },
-    { name: t("requests"), path: "/staff/requests", icon: FileText },
+    { name: t("requests"), path: "/staff/requests", icon: FileText, badge: pendingRequests },
     { name: t("students"), path: "/staff/students", icon: Users },
     { name: t("fines"), path: "/staff/debts", icon: ShieldAlert },
   ];
@@ -35,6 +57,8 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
   const menuItems = isStaff ? staffMenu : studentMenu;
 
   const handleLogout = async () => {
+    const confirmed = window.confirm(`${t("logoutConfirm")} ${user?.name || user?.username || ""}?`);
+    if (!confirmed) return;
     await logout();
     navigate("/login");
   };
@@ -69,7 +93,12 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
                   }`}
                 >
                   <Icon size={18} className={isActive ? "text-white" : "text-gray-400"} />
-                  {item.name}
+                  <span className="flex-1 text-left">{item.name}</span>
+                  {(item.badge || 0) > 0 && (
+                    <span className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-black ${isActive ? "bg-white text-[#A5001A]" : "bg-[#A5001A] text-white"}`}>
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

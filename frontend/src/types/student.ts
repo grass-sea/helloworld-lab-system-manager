@@ -4,5 +4,5 @@ export interface Student {
   fullName: string;
   email: string;
   borrowingCount: number;
-  status: "ACTIVE" | "BLOCKED";
+  status: "ACTIVE" | "BLOCKED" | "DELETED";
 }

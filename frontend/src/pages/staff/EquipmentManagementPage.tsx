@@ -12,6 +12,10 @@ export default function EquipmentManagementPage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState(1);
+  const [supplier, setSupplier] = useState("");
+  const [documentationUrl, setDocumentationUrl] = useState("");
+  const [purchasePrice, setPurchasePrice] = useState(0);
+  const [requiresReturn, setRequiresReturn] = useState(true);
 
   const fetchEquipment = async () => {
     try {
@@ -22,6 +26,12 @@ export default function EquipmentManagementPage() {
         name: item.name,
         category: item.category,
         quantity: item.available_quantity ?? item.total_quantity ?? 0,
+        totalQuantity: item.total_quantity ?? 0,
+        availableQuantity: item.available_quantity ?? 0,
+        supplier: item.supplier,
+        documentationUrl: item.documentation_url,
+        purchasePrice: item.purchase_price,
+        requiresReturn: item.requires_return,
         status: (item.available_quantity ?? 0) > 0 ? "AVAILABLE" : "OUT_OF_STOCK",
       }));
       setEquipment(mappedData);
@@ -39,12 +49,20 @@ export default function EquipmentManagementPage() {
       setName(selectedEquipment.name);
       setCategory(selectedEquipment.category);
       setQuantity(selectedEquipment.quantity);
+      setSupplier(selectedEquipment.supplier || "");
+      setDocumentationUrl(selectedEquipment.documentationUrl || "");
+      setPurchasePrice(selectedEquipment.purchasePrice || 0);
+      setRequiresReturn(selectedEquipment.requiresReturn ?? true);
       return;
     }
 
     setName("");
     setCategory("");
     setQuantity(1);
+    setSupplier("");
+    setDocumentationUrl("");
+    setPurchasePrice(0);
+    setRequiresReturn(true);
   }, [selectedEquipment]);
 
   const filteredEquipment = equipment.filter((item) =>
@@ -71,17 +89,40 @@ export default function EquipmentManagementPage() {
     return created.data.id;
   };
 
+  const getOrCreateSupplierId = async () => {
+    if (!supplier.trim()) return null;
+    const suppliersRes = await axiosInstance.get("/suppliers");
+    const existing = suppliersRes.data.find(
+      (item: any) => item.supplier_name.toLowerCase() === supplier.trim().toLowerCase()
+    );
+    if (existing) return existing.id;
+    const created = await axiosInstance.post("/suppliers", {
+      supplier_name: supplier.trim(),
+      contact_name: "",
+      phone: "",
+      email: "",
+      address: "",
+    });
+    return created.data.id;
+  };
+
   const handleSaveEquipment = async () => {
     if (!name.trim() || !category.trim() || quantity < 0) return;
 
     try {
       const categoryId = await getOrCreateCategoryId();
+      const supplierId = await getOrCreateSupplierId();
       const payload = {
         item_code: selectedEquipment?.id || `EQ_${Date.now()}`,
         item_name: name.trim(),
         category_id: categoryId,
+        supplier_id: supplierId,
         unit: "piece",
         minimum_quantity: 0,
+        documentation_url: documentationUrl.trim() || null,
+        purchase_price: purchasePrice,
+        rental_price: 0,
+        requires_return: requiresReturn,
         total_quantity: quantity,
       };
 
@@ -155,6 +196,22 @@ export default function EquipmentManagementPage() {
             <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Quantity</label>
             <input type="number" min={0} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#A5001A]" />
           </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Supplier</label>
+            <input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Supplier" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#A5001A]" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Documentation URL</label>
+            <input value={documentationUrl} onChange={(e) => setDocumentationUrl(e.target.value)} placeholder="https://..." className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#A5001A]" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Purchase Price</label>
+            <input type="number" min={0} value={purchasePrice} onChange={(e) => setPurchasePrice(Number(e.target.value))} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:outline-none focus:border-[#A5001A]" />
+          </div>
+          <label className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-700">
+            <input type="checkbox" checked={requiresReturn} onChange={(e) => setRequiresReturn(e.target.checked)} className="h-4 w-4 accent-[#A5001A]" />
+            Requires return after borrowing
+          </label>
           <div className="flex justify-end gap-3 pt-2">
             <button onClick={handleCloseModal} className="px-4 py-2 border rounded-xl hover:bg-gray-50 transition text-gray-700 font-medium">Cancel</button>
             <button onClick={handleSaveEquipment} className="bg-[#A5001A] hover:bg-[#8d0016] text-white px-4 py-2 rounded-xl font-medium transition">Save</button>

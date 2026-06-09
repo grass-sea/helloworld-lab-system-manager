@@ -12,9 +12,11 @@ export default function StatusBadge({ status }: Props) {
     APPROVED: "bg-green-100 text-green-700 font-semibold",
     REJECTED: "bg-rose-100 text-rose-700 font-semibold",
     COMPLETED: "bg-sky-100 text-sky-700 font-semibold",
+    OVERDUE: "bg-orange-100 text-orange-700 font-semibold",
     PROCESSED: "bg-amber-50 text-amber-600 font-bold border border-amber-200", 
     ACTIVE: "bg-green-100 text-green-700 font-semibold",   
     BLOCKED: "bg-rose-100 text-rose-700 font-semibold",    
+    DELETED: "bg-gray-200 text-gray-500 font-semibold",
   };
 
   return (

@@ -20,6 +20,9 @@ export default function StaffEquipmentTable({
             <th className="p-4">Equipment</th>
             <th className="p-4">Category</th>
             <th className="p-4">Quantity</th>
+            <th className="p-4">Supplier</th>
+            <th className="p-4">Price</th>
+            <th className="p-4">Return</th>
             <th className="p-4 text-right">Actions</th>
           </tr>
         </thead>
@@ -47,6 +50,18 @@ export default function StaffEquipmentTable({
 
               <td className="p-4 text-sm text-gray-600 font-semibold">
                 {item.quantity}
+              </td>
+
+              <td className="p-4 text-sm text-gray-600">
+                {item.supplier || "N/A"}
+              </td>
+
+              <td className="p-4 text-sm text-gray-600">
+                ${item.purchasePrice ?? 0}
+              </td>
+
+              <td className="p-4 text-sm text-gray-600">
+                {item.requiresReturn ? "Required" : "Purchase"}
               </td>
 
               <td className="p-4 text-right">

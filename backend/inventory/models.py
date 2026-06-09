@@ -93,6 +93,11 @@ class Item(TimeStampedModel):
         blank=True,
         null=True
     )
+
+    documentation_url = models.URLField(
+        blank=True,
+        null=True
+    )
     
     purchase_price = models.DecimalField(
         max_digits=12,
@@ -184,6 +189,10 @@ class BorrowRequest(TimeStampedModel):
         blank=True,
         null=True
     )
+
+    is_overdue = models.BooleanField(default=False)
+
+    overdue_notified_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return f"Request #{self.id}"
