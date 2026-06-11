@@ -6,6 +6,7 @@ export type BorrowRequestStatus =
 
 export interface BorrowRequestItem {
   borrow_item_id?: number;
+  equipment_id?: string;
   item_name: string;
   quantity: number;
   status?: BorrowRequestStatus;

@@ -1,7 +1,14 @@
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+
+
+vn_phone_validator = RegexValidator(
+    regex=r"^(03|05|07|08|09)\d{8}$",
+    message="Phone number must be exactly 10 digits and start with 03, 05, 07, 08, or 09.",
+)
 
 
 class TimeStampedModel(models.Model):
@@ -55,6 +62,15 @@ class Supplier(TimeStampedModel):
         return self.supplier_name
 
 class Item(TimeStampedModel):
+    STATUS_CHOICES = [
+        ("ACTIVE", "Active"),
+        ("DELETED", "Deleted"),
+    ]
+
+    equipment_id = models.CharField(
+        max_length=50,
+        unique=True
+    )
 
     item_code = models.CharField(
         max_length=50,
@@ -99,16 +115,19 @@ class Item(TimeStampedModel):
         null=True
     )
     
-    purchase_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    purchase_price = models.BigIntegerField(
         default=0
     )
 
-    rental_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    rental_price = models.BigIntegerField(
         default=0
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="ACTIVE",
+        db_index=True,
     )
 
     def __str__(self):
@@ -154,6 +173,13 @@ class Borrower(TimeStampedModel):
     department = models.CharField(max_length=100, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=15, blank=True, null=True)
+    phone_number = models.CharField(max_length=10, blank=True, null=True, validators=[vn_phone_validator])
+    date_of_birth = models.DateField(blank=True, null=True)
+    faculty = models.CharField(max_length=120, blank=True, null=True)
+    major = models.CharField(max_length=120, blank=True, null=True)
+    class_name = models.CharField(max_length=80, blank=True, null=True)
+    academic_year = models.CharField(max_length=20, blank=True, null=True)
+    study_status = models.CharField(max_length=50, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE")
 
     def __str__(self):
@@ -275,9 +301,7 @@ class ReturnRecordItem(TimeStampedModel):
         choices=CONDITION_CHOICES
     )
 
-    fine_amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    fine_amount = models.BigIntegerField(
         default=0
     )
 
@@ -299,9 +323,7 @@ class MaintenanceRecord(TimeStampedModel):
 
     next_maintenance_date = models.DateField()
 
-    cost = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+    cost = models.BigIntegerField(
         default=0
     )
 
@@ -384,7 +406,7 @@ class Debt(TimeStampedModel):
 
     borrower = models.ForeignKey(Borrower, on_delete=models.CASCADE)
     borrow_item = models.ForeignKey(BorrowRequestItem, on_delete=models.PROTECT)
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.BigIntegerField()
     reason = models.CharField(max_length=255, blank=True, default="")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="UNPAID")
     paid_at = models.DateTimeField(null=True, blank=True)

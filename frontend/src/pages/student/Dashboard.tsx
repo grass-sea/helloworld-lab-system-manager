@@ -3,6 +3,7 @@ import { Bell, Clock, Package, FileText, CreditCard, ChevronRight } from "lucide
 import { useApp } from "../../context/AppContext";
 import axiosInstance from "../../api/axios";
 import { useI18n } from "../../context/I18nContext";
+import { formatVnd } from "../../utils/currency";
 
 export default function Dashboard() {
   const { user } = useApp();
@@ -102,7 +103,7 @@ export default function Dashboard() {
             <CreditCard size={24} />
           </div>
           <p className="text-gray-500 text-sm font-bold uppercase tracking-wider">{t("outstandingDebts")}</p>
-          <p className="text-3xl font-black text-gray-900 mt-1">${stats.totalDebt}</p>
+          <p className="text-3xl font-black text-gray-900 mt-1">{formatVnd(stats.totalDebt)}</p>
         </div>
       </div>
 

@@ -9,7 +9,8 @@ export interface Debt {
 
   daysLeft: number;
 
-  fine: number;
+  amount: number;
+  amountDisplay?: string;
 
   status:
     | "ACTIVE"

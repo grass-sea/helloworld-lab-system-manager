@@ -29,7 +29,7 @@ export default function Sidebar() {
   const studentMenus = [
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/equipment", label: "Equipment", icon: Boxes },
-    { path: "/debt", label: "Debt Tracking", icon: ShieldAlert },
+    { path: "/debt", label: "Theo dõi công nợ", icon: ShieldAlert },
     { path: "/history", label: "History", icon: History },
   ];
 

@@ -6,7 +6,7 @@ import type { BorrowRequest, BorrowRequestRow } from "../../types/request";
 const toRow = (item: BorrowRequest): BorrowRequestRow => ({
   id: item.id,
   studentName: item.borrower,
-  equipment: item.items?.map((requestItem) => `${requestItem.item_name} x${requestItem.quantity}`).join(", ") || "No items",
+  equipment: item.items?.map((requestItem) => `${requestItem.equipment_id || requestItem.item_name}: ${requestItem.item_name} x${requestItem.quantity}`).join(", ") || "No items",
   requestDate: item.request_date.split("T")[0],
   status: item.status,
 });

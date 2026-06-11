@@ -1,11 +1,12 @@
 from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 from datetime import date, timedelta
-from decimal import Decimal
+import logging
+import re
 from django.contrib.auth import authenticate, login as django_login, logout as django_logout
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
-from django.db.models import Sum
+from django.db import IntegrityError, transaction
+from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -29,6 +30,7 @@ from .models import (
 )
 
 api = NinjaAPI(title="Lab Equipment Management API", version="1.0.0")
+logger = logging.getLogger(__name__)
 
 # 1. SCHEMAS (MÔ HÌNH DỮ LIỆU ĐẦU VÀO)
 class LoginSchema(Schema):
@@ -46,6 +48,13 @@ class RegisterSchema(Schema):
     borrower_type: str = "STUDENT"
     department: str | None = None
     phone: str | None = None
+    phone_number: str | None = None
+    date_of_birth: str | None = None
+    faculty: str | None = None
+    major: str | None = None
+    class_name: str | None = None
+    academic_year: str | None = None
+    study_status: str | None = None
 
 class CategoryCreateUpdateSchema(Schema):
     name: str
@@ -59,6 +68,7 @@ class SupplierCreateUpdateSchema(Schema):
     address: str | None = None
 
 class ItemCreateUpdateSchema(Schema):
+    equipment_id: str
     item_code: str
     item_name: str
     category_id: int
@@ -68,8 +78,8 @@ class ItemCreateUpdateSchema(Schema):
     minimum_quantity: int = 0
     description: str | None = None
     documentation_url: str | None = None
-    purchase_price: float = 0.0
-    rental_price: float = 0.0
+    purchase_price: int = 0
+    rental_price: int = 0
     total_quantity: int | None = None
 
 class RoomCreateUpdateSchema(Schema):
@@ -78,13 +88,38 @@ class RoomCreateUpdateSchema(Schema):
     location: str | None = None
 
 class BorrowerCreateUpdateSchema(Schema):
-    borrower_code: str
+    borrower_code: str | None = None
+    student_id: str | None = None
     full_name: str
     borrower_type: str  # STUDENT, LECTURER, RESEARCHER, EXTERNAL
     department: str | None = None
     email: str | None = None
     phone: str | None = None
+    phone_number: str | None = None
+    date_of_birth: str | None = None
+    faculty: str | None = None
+    major: str | None = None
+    class_name: str | None = None
+    academic_year: str | None = None
+    study_status: str | None = None
     status: str = "ACTIVE"  # ACTIVE, BLACKLISTED, INACTIVE
+
+class BorrowerPatchSchema(Schema):
+    borrower_code: str | None = None
+    student_id: str | None = None
+    full_name: str | None = None
+    borrower_type: str | None = None
+    department: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    phone_number: str | None = None
+    date_of_birth: str | None = None
+    faculty: str | None = None
+    major: str | None = None
+    class_name: str | None = None
+    academic_year: str | None = None
+    study_status: str | None = None
+    status: str | None = None
 
 class BorrowRequestSchema(Schema):
     borrower_id: int
@@ -108,12 +143,6 @@ class NotificationCreateSchema(Schema):
     title: str
     content: str
 
-class DebtCreateSchema(Schema):
-    borrower_code: str
-    borrow_item_id: int
-    amount: float
-    reason: str | None = None
-
 class BorrowerStatusSchema(Schema):
     status: str
 
@@ -126,24 +155,234 @@ def notify_borrower(borrower, title: str, content: str):
 
 
 def active_username(request):
+    if not request:
+        return "SYSTEM"
     return request.user.username if request.user.is_authenticated else "SYSTEM"
 
 
-def condition_fine_rate(condition: str) -> Decimal:
+def validate_vn_phone(phone_number: str | None):
+    if phone_number and not re.fullmatch(r"(03|05|07|08|09)\d{8}", phone_number):
+        raise HttpError(400, "Phone number must be exactly 10 digits and start with 03, 05, 07, 08, or 09.")
+
+
+def parse_optional_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise HttpError(400, "Date of birth must be YYYY-MM-DD")
+
+
+def normalize_borrower_payload(data: dict, partial: bool = False):
+    data = {key: value for key, value in data.items() if value is not None or not partial}
+    student_id = data.pop("student_id", None)
+    if student_id:
+        data["borrower_code"] = student_id
+    if not partial and not data.get("borrower_code"):
+        raise HttpError(400, "Student ID is required")
+    if "phone_number" in data or "phone" in data:
+        validate_vn_phone(data.get("phone_number") or data.get("phone"))
+        if not data.get("phone_number"):
+            data["phone_number"] = data.get("phone")
+        if not data.get("phone"):
+            data["phone"] = data.get("phone_number")
+    if "date_of_birth" in data:
+        data["date_of_birth"] = parse_optional_date(data.get("date_of_birth"))
+    if "status" in data and data["status"] not in {"ACTIVE", "BLOCKED"}:
+        raise HttpError(400, "Invalid borrower status")
+    return data
+
+
+def sync_borrower_user(borrower):
+    for profile in UserProfile.objects.select_related("user").filter(borrower=borrower):
+        user = profile.user
+        user.email = borrower.email or user.email
+        if profile.role == "BORROWER" and borrower.borrower_code:
+            user.username = borrower.borrower_code
+        user.is_active = borrower.status == "ACTIVE"
+        user.save(update_fields=["username", "email", "is_active"])
+
+
+def resolve_profile_borrower(user, profile, source: str = "profile"):
+    borrower = profile.borrower
+    logger.info(
+        "%s borrower lookup: user_id=%s username=%s profile_id=%s borrower_id=%s",
+        source,
+        user.id,
+        user.username,
+        profile.id,
+        borrower.id if borrower else None,
+    )
+    if borrower:
+        return borrower
+
+    if profile.role != "BORROWER":
+        logger.warning(
+            "%s borrower lookup failed: user_id=%s username=%s profile_id=%s role=%s is not BORROWER",
+            source,
+            user.id,
+            user.username,
+            profile.id,
+            profile.role,
+        )
+        return None
+
+    borrower = Borrower.objects.filter(borrower_code=user.username).first()
+    if not borrower and user.email:
+        borrower = Borrower.objects.filter(email=user.email).first()
+
+    if borrower:
+        profile.borrower = borrower
+        profile.save(update_fields=["borrower"])
+        logger.warning(
+            "%s repaired missing borrower link: user_id=%s username=%s profile_id=%s borrower_id=%s",
+            source,
+            user.id,
+            user.username,
+            profile.id,
+            borrower.id,
+        )
+        return borrower
+
+    logger.warning(
+        "%s borrower lookup failed: user_id=%s username=%s profile_id=%s has no matching Borrower",
+        source,
+        user.id,
+        user.username,
+        profile.id,
+    )
+    return None
+
+
+def condition_payment_rate(condition: str) -> tuple[int, int]:
     normalized = condition.upper()
     rates = {
-        "GOOD": Decimal("0"),
-        "NORMAL": Decimal("0"),
-        "LIGHT_DAMAGE": Decimal("0.2"),
-        "DAMAGED": Decimal("0.2"),
-        "HEAVY_DAMAGE": Decimal("0.6"),
-        "BROKEN": Decimal("0.6"),
-        "LOST_OR_DESTROYED": Decimal("1.0"),
-        "LOST": Decimal("1.0"),
+        "GOOD": (0, 100),
+        "NORMAL": (0, 100),
+        "LIGHT_DAMAGE": (20, 100),
+        "DAMAGED": (20, 100),
+        "HEAVY_DAMAGE": (60, 100),
+        "BROKEN": (60, 100),
+        "LOST_OR_DESTROYED": (100, 100),
+        "LOST": (100, 100),
     }
     if normalized not in rates:
         raise HttpError(400, "Invalid returned condition")
     return rates[normalized]
+
+
+def borrower_payload(borrower):
+    return {
+        "id": borrower.id,
+        "borrower_code": borrower.borrower_code,
+        "student_id": borrower.borrower_code,
+        "full_name": borrower.full_name,
+        "borrower_type": borrower.borrower_type,
+        "department": borrower.department,
+        "email": borrower.email,
+        "phone": borrower.phone,
+        "phone_number": borrower.phone_number,
+        "date_of_birth": borrower.date_of_birth,
+        "faculty": borrower.faculty,
+        "major": borrower.major,
+        "class_name": borrower.class_name,
+        "academic_year": borrower.academic_year,
+        "study_status": borrower.study_status,
+        "status": borrower.status,
+        "created_at": borrower.created_at,
+    }
+
+
+def borrower_detail_payload(borrower):
+    current_items = []
+    current_equipment_value = 0
+    current_quantity = 0
+    for item in BorrowRequestItem.objects.select_related("item", "request").filter(
+        request__borrower=borrower,
+        request__status="APPROVED",
+        status="APPROVED",
+        item__requires_return=True,
+    ):
+        returned = ReturnRecordItem.objects.filter(borrow_item=item).aggregate(total=Sum("quantity"))["total"] or 0
+        remaining = item.quantity - returned
+        if remaining <= 0:
+            continue
+        line_value = remaining * item.item.purchase_price
+        current_equipment_value += line_value
+        current_quantity += remaining
+        current_items.append({
+            "borrow_item_id": item.id,
+            "request_id": item.request_id,
+            "equipment_id": item.item.equipment_id,
+            "item_name": item.item.item_name,
+            "quantity": item.quantity,
+            "remaining_quantity": remaining,
+            "purchase_price": item.item.purchase_price,
+            "line_value": line_value,
+            "expected_return_date": item.request.expected_return_date,
+        })
+
+    requests = BorrowRequest.objects.filter(borrower=borrower)
+    debts = Debt.objects.select_related("borrow_item__item").filter(borrower=borrower).order_by("-created_at")
+    notifications = Notification.objects.filter(borrower=borrower).order_by("-created_at")
+    history = []
+    for req in requests.prefetch_related("items__item").order_by("-request_date"):
+        for item in req.items.all():
+            history.append({
+                "request_id": req.id,
+                "request_date": req.request_date,
+                "expected_return_date": req.expected_return_date,
+                "item_name": item.item.item_name,
+                "equipment_id": item.item.equipment_id,
+                "quantity": item.quantity,
+                "status": item.status,
+                "borrow_request_status": req.status,
+            })
+
+    return {
+        "student": borrower_payload(borrower),
+        "borrow_statistics": {
+            "total_requests": requests.count(),
+            "pending_requests": requests.filter(status="PENDING").count(),
+            "approved_requests": requests.filter(status="APPROVED").count(),
+            "completed_requests": requests.filter(status="COMPLETED").count(),
+            "rejected_requests": requests.filter(status="REJECTED").count(),
+            "current_borrowed_quantity": current_quantity,
+        },
+        "current_borrowed_equipment": current_items,
+        "current_equipment_value": current_equipment_value,
+        "debt_summary": {
+            "total_unpaid": sum(debt.amount for debt in debts if debt.status == "UNPAID"),
+            "total_paid": sum(debt.amount for debt in debts if debt.status == "PAID"),
+            "unpaid_count": sum(1 for debt in debts if debt.status == "UNPAID"),
+            "total_records": debts.count(),
+        },
+        "payment_request_history": [
+            {
+                "id": debt.id,
+                "item": debt.borrow_item.item.item_name,
+                "equipment_id": debt.borrow_item.item.equipment_id,
+                "amount": debt.amount,
+                "reason": debt.reason,
+                "status": debt.status,
+                "created_at": debt.created_at,
+                "paid_at": debt.paid_at,
+            }
+            for debt in debts
+        ],
+        "notification_history": [
+            {
+                "id": n.id,
+                "title": n.title,
+                "content": n.content,
+                "is_read": n.is_read,
+                "created_at": n.created_at,
+            }
+            for n in notifications
+        ],
+        "borrow_history": history,
+    }
 
 # 2. AUTHENTICATION & USER APIs (Xác thực & Người dùng)
 
@@ -151,6 +390,7 @@ def condition_fine_rate(condition: str) -> Decimal:
 def register(request, payload: RegisterSchema):
     if User.objects.filter(username=payload.username).exists():
         return {"success": False, "message": "Username already exists"}
+    validate_vn_phone(payload.phone_number or payload.phone)
 
     with transaction.atomic():
         borrower = None
@@ -164,6 +404,13 @@ def register(request, payload: RegisterSchema):
                     department=payload.department,
                     email=payload.email,
                     phone=payload.phone,
+                    phone_number=payload.phone_number or payload.phone,
+                    date_of_birth=parse_optional_date(payload.date_of_birth),
+                    faculty=payload.faculty,
+                    major=payload.major,
+                    class_name=payload.class_name,
+                    academic_year=payload.academic_year,
+                    study_status=payload.study_status,
                     status="ACTIVE",
                 )
         user = User.objects.create_user(
@@ -193,9 +440,10 @@ def login(request, payload: LoginSchema):
         profile = user.userprofile
     except ObjectDoesNotExist:
         return {"success": False, "code": "PROFILE_MISSING", "message": "User profile is missing. Please ask an admin to assign a role."}
-    if profile.borrower and profile.borrower.status == "DELETED":
+    borrower = resolve_profile_borrower(user, profile, "auth_login")
+    if borrower and borrower.status == "DELETED":
         return {"success": False, "code": "ACCOUNT_DISABLED", "message": "Account disabled"}
-    if profile.borrower and profile.borrower.status == "BLOCKED":
+    if borrower and borrower.status == "BLOCKED":
         return {"success": False, "code": "ACCOUNT_DISABLED", "message": "Account disabled"}
     django_login(request, user)
     return {
@@ -203,9 +451,107 @@ def login(request, payload: LoginSchema):
         "message": "Login successful",
         "username": user.username,
         "email": user.email,
-        "full_name": profile.borrower.full_name if profile.borrower else user.get_full_name(),
+        "full_name": borrower.full_name if borrower else user.get_full_name(),
         "role": profile.role,
-        "borrower_code": profile.borrower.borrower_code if profile.borrower else None,
+        "borrower_code": borrower.borrower_code if borrower else None,
+    }
+
+@api.get("/student/me")
+def student_me(request):
+    user = request.user
+    if not user.is_authenticated:
+        raise HttpError(401, "Authentication required")
+    try:
+        profile = user.userprofile
+    except ObjectDoesNotExist:
+        logger.warning(
+            "student_me borrower lookup failed: user_id=%s username=%s has no UserProfile",
+            user.id,
+            user.username,
+        )
+        raise HttpError(403, "User profile is missing")
+    borrower = resolve_profile_borrower(user, profile, "student_me")
+    if not borrower:
+        raise HttpError(403, "Only borrower accounts can access student profile")
+
+    requests = BorrowRequest.objects.filter(borrower=borrower)
+    active_requests = requests.filter(status="APPROVED")
+    overdue_requests = active_requests.filter(
+        Q(is_overdue=True) | Q(expected_return_date__lt=date.today())
+    )
+    debts = Debt.objects.select_related("borrow_item__item").filter(borrower=borrower).order_by("-created_at")
+    unpaid_debts = debts.filter(status="UNPAID")
+
+    current_items = []
+    for item in BorrowRequestItem.objects.select_related("item", "request").filter(
+        request__borrower=borrower,
+        request__status="APPROVED",
+        status="APPROVED",
+        item__requires_return=True,
+    ).order_by("-request__request_date"):
+        returned = ReturnRecordItem.objects.filter(borrow_item=item).aggregate(total=Sum("quantity"))["total"] or 0
+        remaining = item.quantity - returned
+        if remaining <= 0:
+            continue
+        current_items.append({
+            "borrow_item_id": item.id,
+            "request_id": item.request_id,
+            "equipment_id": item.item.equipment_id,
+            "equipment_name": item.item.item_name,
+            "quantity": remaining,
+            "borrow_date": item.request.request_date,
+            "due_date": item.request.expected_return_date,
+            "status": "OVERDUE" if item.request.expected_return_date < date.today() or item.request.is_overdue else item.status,
+        })
+
+    student = borrower_payload(borrower)
+    student["email"] = borrower.email or user.email
+    flat_student = {
+        "borrower_id": borrower.id,
+        "student_id": borrower.borrower_code,
+        "full_name": borrower.full_name,
+        "email": student["email"],
+        "phone_number": borrower.phone_number or borrower.phone,
+        "date_of_birth": borrower.date_of_birth,
+        "faculty": borrower.faculty,
+        "major": borrower.major,
+        "class_name": borrower.class_name,
+        "academic_year": borrower.academic_year,
+        "study_status": borrower.study_status,
+        "status": borrower.status,
+    }
+
+    return {
+        **flat_student,
+        "student": student,
+        "borrow_statistics": {
+            "total_borrow_requests": requests.count(),
+            "active_borrowings": active_requests.count(),
+            "overdue_borrowings": overdue_requests.count(),
+            "total_debts": debts.count(),
+            "unpaid_debt_amount": sum(debt.amount for debt in unpaid_debts),
+        },
+        "current_borrowed_equipment": current_items,
+        "outstanding_debts": [
+            {
+                "id": debt.id,
+                "reason": debt.reason or f"Payment request for {debt.borrow_item.item.item_name}",
+                "amount": debt.amount,
+                "status": debt.status,
+                "created_at": debt.created_at,
+            }
+            for debt in unpaid_debts
+        ],
+        "recent_notifications": [
+            {
+                "id": notification.id,
+                "title": notification.title,
+                "message": notification.content,
+                "created_at": notification.created_at,
+                "is_read": notification.is_read,
+            }
+            for notification in Notification.objects.filter(borrower=borrower).order_by("-created_at")[:10]
+        ],
     }
 
 @api.get("/auth/me")
@@ -217,13 +563,14 @@ def me(request):
         profile = user.userprofile
     except ObjectDoesNotExist:
         return {"authenticated": False, "message": "User profile is missing"}
+    borrower = resolve_profile_borrower(user, profile, "auth_me")
     return {
         "authenticated": True,
         "username": user.username,
         "email": user.email,
-        "full_name": profile.borrower.full_name if profile.borrower else user.get_full_name(),
+        "full_name": borrower.full_name if borrower else user.get_full_name(),
         "role": profile.role,
-        "borrower_code": profile.borrower.borrower_code if profile.borrower else None,
+        "borrower_code": borrower.borrower_code if borrower else None,
     }
 
 @api.post("/auth/logout")
@@ -309,13 +656,14 @@ def delete_supplier(request, supplier_id: int):
 @api.get("/items")
 def get_items(request):
     result = []
-    for item in Item.objects.select_related("category").all():
+    for item in Item.objects.select_related("category").filter(status="ACTIVE"):
         totals = ItemStock.objects.filter(item=item).aggregate(
             total=Sum("total_quantity"),
             available=Sum("available_quantity"),
         )
         result.append({
             "id": item.id,
+            "equipment_id": item.equipment_id,
             "code": item.item_code,
             "name": item.item_name,
             "category": item.category.name,
@@ -323,17 +671,18 @@ def get_items(request):
             "unit": item.unit,
             "requires_return": item.requires_return,
             "documentation_url": item.documentation_url,
-            "purchase_price": float(item.purchase_price),
-            "rental_price": float(item.rental_price),
+            "purchase_price": item.purchase_price,
+            "rental_price": item.rental_price,
             "minimum_quantity": item.minimum_quantity,
             "total_quantity": totals["total"] or 0,
             "available_quantity": totals["available"] or 0,
+            "status": item.status,
         })
     return result
 
 @api.get("/items/search")
 def search_items(request, keyword: str):
-    items = Item.objects.filter(item_name__icontains=keyword)
+    items = Item.objects.filter(status="ACTIVE", item_name__icontains=keyword)
     return [{"id": item.id, "name": item.item_name} for item in items]
 
 @api.get("/items/{item_id}")
@@ -341,22 +690,26 @@ def item_detail(request, item_id: int):
     item = Item.objects.get(id=item_id)
     return {
         "id": item.id,
+        "equipment_id": item.equipment_id,
         "item_code": item.item_code,
         "item_name": item.item_name,
         "category": item.category.name,
         "supplier": item.supplier.supplier_name if item.supplier else None,
-        "purchase_price": float(item.purchase_price),
-        "rental_price": float(item.rental_price),
+        "purchase_price": item.purchase_price,
+        "rental_price": item.rental_price,
         "minimum_quantity": item.minimum_quantity,
         "requires_return": item.requires_return,
         "documentation_url": item.documentation_url,
         "description": item.description,
         "unit": item.unit,
+        "status": item.status,
     }
 
 @api.post("/items")
 def create_item(request, payload: ItemCreateUpdateSchema):
     data = payload.dict()
+    if Item.objects.filter(equipment_id=data["equipment_id"]).exists():
+        raise HttpError(400, "Equipment ID already exists")
     category_id = data.pop("category_id")
     supplier_id = data.pop("supplier_id", None)
     total_quantity = data.pop("total_quantity", None)
@@ -365,7 +718,10 @@ def create_item(request, payload: ItemCreateUpdateSchema):
     supplier = Supplier.objects.get(id=supplier_id) if supplier_id else None
     
     with transaction.atomic():
-        item = Item.objects.create(category=category, supplier=supplier, **data)
+        try:
+            item = Item.objects.create(category=category, supplier=supplier, **data)
+        except IntegrityError:
+            raise HttpError(400, "Equipment ID or item code already exists")
         if total_quantity is not None:
             room, _ = Room.objects.get_or_create(
                 room_code="MAIN",
@@ -383,6 +739,8 @@ def create_item(request, payload: ItemCreateUpdateSchema):
 def update_item(request, item_id: int, payload: ItemCreateUpdateSchema):
     item = Item.objects.get(id=item_id)
     data = payload.dict()
+    if Item.objects.exclude(id=item_id).filter(equipment_id=data["equipment_id"]).exists():
+        raise HttpError(400, "Equipment ID already exists")
     category_id = data.pop("category_id")
     supplier_id = data.pop("supplier_id", None)
     total_quantity = data.pop("total_quantity", None)
@@ -393,7 +751,10 @@ def update_item(request, item_id: int, payload: ItemCreateUpdateSchema):
         
         for attr, value in data.items():
             setattr(item, attr, value)
-        item.save()
+        try:
+            item.save()
+        except IntegrityError:
+            raise HttpError(400, "Equipment ID or item code already exists")
         if total_quantity is not None:
             room, _ = Room.objects.get_or_create(
                 room_code="MAIN",
@@ -426,9 +787,28 @@ def update_item(request, item_id: int, payload: ItemCreateUpdateSchema):
 
 @api.delete("/items/{item_id}")
 def delete_item(request, item_id: int):
-    item = Item.objects.get(id=item_id)
-    item.delete()
-    return {"message": "Item deleted successfully"}
+    with transaction.atomic():
+        item = Item.objects.select_for_update().get(id=item_id)
+        item.status = "DELETED"
+        item.save(update_fields=["status", "updated_at"])
+        for stock in ItemStock.objects.select_for_update().filter(item=item):
+            before = stock.available_quantity
+            total_before = stock.total_quantity
+            stock.total_quantity = 0
+            stock.available_quantity = 0
+            stock.save(update_fields=["total_quantity", "available_quantity", "updated_at"])
+            if before != 0 or total_before != 0:
+                StockTransaction.objects.create(
+                    item=item,
+                    stock=stock,
+                    transaction_type="ADJUST",
+                    quantity_delta=-before,
+                    available_before=before,
+                    available_after=0,
+                    username=active_username(request),
+                    note="Equipment soft-deleted; stock reset to zero",
+                )
+    return {"message": "Equipment has been deleted and stock quantity has been reset to zero."}
 
 
 # --- ROOMS ---
@@ -461,76 +841,103 @@ def delete_room(request, room_id: int):
 
 # --- BORROWERS ---
 @api.get("/borrowers")
-def get_borrowers(request):
+def get_borrowers(request, status: str | None = None, search: str | None = None):
+    queryset = Borrower.objects.all()
+    normalized_status = status.upper() if status else None
+    if normalized_status in {"ACTIVE", "BLOCKED"}:
+        queryset = queryset.filter(status=normalized_status)
+    elif normalized_status == "ALL":
+        pass
+    elif normalized_status:
+        raise HttpError(400, "Invalid borrower status filter")
+    else:
+        queryset = queryset.filter(status="ACTIVE")
+
+    if search:
+        queryset = queryset.filter(
+            Q(full_name__icontains=search) |
+            Q(borrower_code__icontains=search) |
+            Q(email__icontains=search)
+        )
+
     return [
-        {
-            "id": b.id,
-            "borrower_code": b.borrower_code,
-            "full_name": b.full_name,
-            "borrower_type": b.borrower_type,
-            "email": b.email,
-            "phone": b.phone,
-            "status": b.status
-        } for b in Borrower.objects.all()
+        borrower_payload(b) for b in queryset.order_by("borrower_code")
     ]
+
+@api.get("/borrowers/{borrower_code}/detail")
+def borrower_full_detail(request, borrower_code: str):
+    borrower = get_object_or_404(Borrower, borrower_code=borrower_code)
+    return borrower_detail_payload(borrower)
 
 @api.get("/borrowers/{borrower_code}")
 def borrower_detail(request, borrower_code: str):
     borrower = Borrower.objects.get(borrower_code=borrower_code)
-    return {
-        "id": borrower.id,
-        "borrower_code": borrower.borrower_code,
-        "full_name": borrower.full_name,
-        "borrower_type": borrower.borrower_type,
-        "email": borrower.email,
-        "phone": borrower.phone,
-        "status": borrower.status
-    }
+    return borrower_payload(borrower)
 
 @api.post("/borrowers")
 def create_borrower(request, payload: BorrowerCreateUpdateSchema):
-    borrower = Borrower.objects.create(**payload.dict())
-    return {"id": borrower.id, "message": "Borrower created successfully"}
+    data = normalize_borrower_payload(payload.dict(), partial=False)
+    if Borrower.objects.filter(borrower_code=data["borrower_code"]).exists():
+        raise HttpError(400, "Student ID already exists")
+    borrower = Borrower.objects.create(**data)
+    return {
+        "id": borrower.id,
+        "student_id": borrower.borrower_code,
+        "message": "Borrower created successfully",
+    }
 
+@api.put("/borrowers/id/{borrower_id}")
 @api.put("/borrowers/{borrower_id}")
 def update_borrower(request, borrower_id: int, payload: BorrowerCreateUpdateSchema):
     borrower = Borrower.objects.get(id=borrower_id)
-    for attr, value in payload.dict().items():
+    data = normalize_borrower_payload(payload.dict(), partial=False)
+    if Borrower.objects.exclude(id=borrower_id).filter(borrower_code=data["borrower_code"]).exists():
+        raise HttpError(400, "Student ID already exists")
+    for attr, value in data.items():
         setattr(borrower, attr, value)
     borrower.save()
-    return {"message": "Borrower updated successfully"}
+    sync_borrower_user(borrower)
+    return {
+        **borrower_payload(borrower),
+        "message": "Borrower updated successfully",
+    }
+
+@api.patch("/borrowers/id/{borrower_id}")
+@api.patch("/borrowers/{borrower_id}")
+def patch_borrower(request, borrower_id: int, payload: BorrowerPatchSchema):
+    borrower = Borrower.objects.get(id=borrower_id)
+    data = normalize_borrower_payload(payload.dict(), partial=True)
+    if "borrower_code" in data and Borrower.objects.exclude(id=borrower_id).filter(borrower_code=data["borrower_code"]).exists():
+        raise HttpError(400, "Student ID already exists")
+    for attr, value in data.items():
+        setattr(borrower, attr, value)
+    borrower.save()
+    sync_borrower_user(borrower)
+    return {
+        **borrower_payload(borrower),
+        "message": "Borrower updated successfully",
+    }
 
 @api.patch("/borrowers/{borrower_id}/status")
 def update_borrower_status(request, borrower_id: int, payload: BorrowerStatusSchema):
     borrower = Borrower.objects.get(id=borrower_id)
-    if payload.status not in dict(Borrower.STATUS_CHOICES):
+    if payload.status not in {"ACTIVE", "BLOCKED"}:
         raise HttpError(400, "Invalid borrower status")
     previous_status = borrower.status
     borrower.status = payload.status
     borrower.save(update_fields=["status", "updated_at"])
+    sync_borrower_user(borrower)
     if previous_status != payload.status:
         if payload.status == "BLOCKED":
             notify_borrower(borrower, "Account blocked", "Your borrower account has been blocked.")
         elif previous_status == "BLOCKED" and payload.status == "ACTIVE":
             notify_borrower(borrower, "Account unblocked", "Your borrower account has been unblocked.")
-        elif payload.status == "DELETED":
-            notify_borrower(borrower, "Account deleted", "Your borrower account has been deleted.")
     return {
         "id": borrower.id,
         "borrower_code": borrower.borrower_code,
         "full_name": borrower.full_name,
         "status": borrower.status,
     }
-
-@api.delete("/borrowers/{borrower_id}")
-def delete_borrower(request, borrower_id: int):
-    borrower = Borrower.objects.get(id=borrower_id)
-    borrower.status = "DELETED"
-    borrower.save(update_fields=["status", "updated_at"])
-    UserProfile.objects.filter(borrower=borrower).update(borrower=borrower)
-    User.objects.filter(userprofile__borrower=borrower).update(is_active=False)
-    notify_borrower(borrower, "Account deleted", "Your borrower account has been deleted.")
-    return {"message": "Borrower deleted successfully", "status": borrower.status}
 
 
 # ==========================================
@@ -554,7 +961,8 @@ def get_all_requests(request):
                     "item_id": item.item_id,
                     "item_name": item.item.item_name,
                     "requires_return": item.item.requires_return,
-                    "purchase_price": float(item.item.purchase_price),
+                    "equipment_id": item.item.equipment_id,
+                    "purchase_price": item.item.purchase_price,
                     "quantity": item.quantity,
                     "status": item.status,
                 }
@@ -592,6 +1000,8 @@ def create_borrow_request_item(request, payload: BorrowRequestItemSchema):
     if borrow_request.status != "PENDING":
         raise HttpError(400, "Cannot add items to a processed request")
     item = Item.objects.get(id=payload.item_id)
+    if item.status == "DELETED":
+        raise HttpError(400, "Deleted equipment cannot be borrowed")
     available = ItemStock.objects.filter(item=item).aggregate(total=Sum("available_quantity"))["total"] or 0
 
     if available <= 0:
@@ -617,7 +1027,8 @@ def get_borrow_request(request, request_id: int):
             "item_name": item.item.item_name,
             "quantity": item.quantity,
             "status": item.status,
-            "purchase_price": float(item.item.purchase_price),
+            "equipment_id": item.item.equipment_id,
+            "purchase_price": item.item.purchase_price,
             "requires_return": item.item.requires_return,
         } for item in borrow_request.items.all()
     ]
@@ -646,6 +1057,8 @@ def approve_request(request, request_id: int):
             raise HttpError(400, "Request has no items")
 
         for borrow_item in borrow_items:
+            if borrow_item.item.status == "DELETED":
+                raise HttpError(400, f"Deleted equipment cannot be approved: {borrow_item.item.item_name}")
             available = ItemStock.objects.select_for_update().filter(item=borrow_item.item).aggregate(
                 total=Sum("available_quantity")
             )["total"] or 0
@@ -685,13 +1098,13 @@ def approve_request(request, request_id: int):
                         borrower=borrow_request.borrower,
                         borrow_item=borrow_item,
                         amount=amount,
-                        reason=f"Purchase debt for {borrow_item.item.item_name}",
+                        reason=f"Payment request for {borrow_item.item.item_name}",
                         created_by=request.user if request.user.is_authenticated else None,
                     )
                     notify_borrower(
                         borrow_request.borrower,
-                        "Debt created",
-                        f"A debt of {amount} was created for {borrow_item.item.item_name}.",
+                        "Yêu cầu thanh toán đã được tạo",
+                        f"Yêu cầu thanh toán {amount} VNĐ đã được tạo cho {borrow_item.item.item_name}.",
                     )
 
         all_completed_on_approval = all(not borrow_item.item.requires_return for borrow_item in borrow_items)
@@ -743,6 +1156,10 @@ def return_item(request, payload: ReturnSchema):
             raise HttpError(400, "Borrow item does not belong to request")
         if borrow_request.status != "APPROVED":
             raise HttpError(400, "Only APPROVED requests can be returned")
+        if not borrow_item.item.requires_return:
+            raise HttpError(400, "This equipment is non-returnable and cannot be processed through returns")
+        if borrow_item.status != "APPROVED":
+            raise HttpError(400, "Only approved borrowed items can be returned")
         if payload.quantity <= 0:
             raise HttpError(400, "Returned quantity must be greater than zero")
 
@@ -754,18 +1171,18 @@ def return_item(request, payload: ReturnSchema):
             raise HttpError(400, "Returned quantity exceeds remaining borrowed quantity")
 
         return_record = ReturnRecord.objects.create(request=borrow_request, note=payload.note)
-        fine_rate = condition_fine_rate(payload.returned_condition)
-        fine = borrow_item.item.purchase_price * Decimal(payload.quantity) * fine_rate
+        payment_numerator, payment_denominator = condition_payment_rate(payload.returned_condition)
+        payment_amount = (borrow_item.item.purchase_price * payload.quantity * payment_numerator) // payment_denominator
 
         ReturnRecordItem.objects.create(
             return_record=return_record,
             borrow_item=borrow_item,
             quantity=payload.quantity,
             returned_condition=payload.returned_condition,
-            fine_amount=fine
+            fine_amount=payment_amount
         )
 
-        if fine_rate < Decimal("1.0"):
+        if payment_numerator < payment_denominator:
             stock = ItemStock.objects.select_for_update().filter(item=borrow_item.item).order_by("id").first()
             if not stock:
                 room, _ = Room.objects.get_or_create(
@@ -791,18 +1208,18 @@ def return_item(request, payload: ReturnSchema):
                 note=f"Returned request #{borrow_request.id}",
             )
 
-        if fine > 0:
+        if payment_amount > 0:
             Debt.objects.create(
                 borrower=borrow_request.borrower,
                 borrow_item=borrow_item,
-                amount=fine,
-                reason=payload.note or f"Auto fine for {payload.returned_condition.lower()} return",
+                amount=payment_amount,
+                reason=payload.note or f"Payment request for {payload.returned_condition.lower()} return",
                 created_by=request.user if request.user.is_authenticated else None,
             )
             notify_borrower(
                 borrow_request.borrower,
-                "Debt created",
-                f"A debt of {fine} was created for {borrow_item.item.item_name}.",
+                "Yêu cầu thanh toán đã được tạo",
+                f"Yêu cầu thanh toán {payment_amount} VNĐ đã được tạo cho {borrow_item.item.item_name}.",
             )
 
         if already_returned + payload.quantity >= borrow_item.quantity:
@@ -821,7 +1238,34 @@ def return_item(request, payload: ReturnSchema):
             )
         AuditLog.objects.create(action=f"Returned item #{borrow_item.id} for request #{borrow_request.id}", username=username)
 
-    return {"message": "Return success", "fine_amount": float(fine), "request_status": borrow_request.status}
+    return {"message": "Yêu cầu thanh toán đã được tạo thành công", "payment_amount": payment_amount, "request_status": borrow_request.status}
+
+@api.get("/returns/pending")
+def pending_returns(request):
+    rows = []
+    for item in BorrowRequestItem.objects.select_related("item", "request", "request__borrower").filter(
+        request__status="APPROVED",
+        status="APPROVED",
+        item__requires_return=True,
+    ).order_by("-request__request_date"):
+        returned = ReturnRecordItem.objects.filter(borrow_item=item).aggregate(total=Sum("quantity"))["total"] or 0
+        remaining = item.quantity - returned
+        if remaining <= 0:
+            continue
+        rows.append({
+            "request_id": item.request_id,
+            "borrow_item_id": item.id,
+            "borrower": item.request.borrower.full_name,
+            "borrower_code": item.request.borrower.borrower_code,
+            "equipment_id": item.item.equipment_id,
+            "item_id": item.item_id,
+            "item_name": item.item.item_name,
+            "purchase_price": item.item.purchase_price,
+            "quantity": item.quantity,
+            "remaining_quantity": remaining,
+            "expected_return_date": item.request.expected_return_date,
+        })
+    return rows
 
 @api.get("/stocks")
 def get_stocks(request):
@@ -831,20 +1275,20 @@ def get_stocks(request):
             "room": stock.room.room_name,
             "total": stock.total_quantity,
             "available": stock.available_quantity
-        } for stock in ItemStock.objects.all()
+        } for stock in ItemStock.objects.filter(item__status="ACTIVE")
     ]
 
 @api.get("/items/available")
 def available_items(request):
     return [
         {"item_id": stock.item.id, "item_name": stock.item.item_name, "available_quantity": stock.available_quantity}
-        for stock in ItemStock.objects.filter(available_quantity__gt=0)
+        for stock in ItemStock.objects.filter(item__status="ACTIVE", available_quantity__gt=0)
     ]
 
 @api.get("/stocks/low")
 def low_stock_items(request):
     result = []
-    for stock in ItemStock.objects.all():
+    for stock in ItemStock.objects.filter(item__status="ACTIVE"):
         if stock.available_quantity <= stock.item.minimum_quantity:
             result.append({
                 "item": stock.item.item_name,
@@ -857,7 +1301,7 @@ def low_stock_items(request):
 @api.post("/stocks/check")
 def check_stock(request):
     created = 0
-    for stock in ItemStock.objects.all():
+    for stock in ItemStock.objects.filter(item__status="ACTIVE"):
         if stock.available_quantity <= stock.item.minimum_quantity:
             Notification.objects.create(
                 title="Low Stock Alert",
@@ -907,6 +1351,7 @@ def borrower_borrowed_items(request, borrower_code: str):
         request__borrower=borrower,
         request__status="APPROVED",
         status="APPROVED",
+        item__requires_return=True,
     ):
         returned = ReturnRecordItem.objects.filter(borrow_item=item).aggregate(total=Sum("quantity"))["total"] or 0
         remaining = item.quantity - returned
@@ -915,14 +1360,17 @@ def borrower_borrowed_items(request, borrower_code: str):
                 "borrow_item_id": item.id,
                 "request_id": item.request_id,
                 "item_id": item.item_id,
+                "equipment_id": item.item.equipment_id,
                 "item_name": item.item.item_name,
+                "purchase_price": item.item.purchase_price,
+                "requires_return": item.item.requires_return,
                 "quantity": item.quantity,
                 "remaining_quantity": remaining,
             })
     return rows
 
-@api.get("/fines")
-def get_fines(request):
+@api.get("/payment-requests")
+def get_payment_requests(request):
     return [
         {
             "id": debt.id,
@@ -930,65 +1378,29 @@ def get_fines(request):
             "borrower_code": debt.borrower.borrower_code,
             "borrow_item_id": debt.borrow_item_id,
             "item": debt.borrow_item.item.item_name,
-            "fine": float(debt.amount),
+            "amount": debt.amount,
             "reason": debt.reason,
             "status": debt.status,
             "created_at": debt.created_at,
-        } for debt in Debt.objects.select_related("borrower", "borrow_item__item").filter(status="UNPAID")
+        } for debt in Debt.objects.select_related("borrower", "borrow_item__item").all().order_by("-created_at")
     ]
 
-@api.post("/fines")
-def create_fine(request, payload: DebtCreateSchema):
-    borrower = get_object_or_404(Borrower, borrower_code=payload.borrower_code)
-    borrow_item = get_object_or_404(
-        BorrowRequestItem.objects.select_related("request", "item"),
-        id=payload.borrow_item_id,
-        request__borrower=borrower,
-        request__status="APPROVED",
-    )
-    if borrow_item.status != "APPROVED":
-        raise HttpError(400, "Debt can only be created for currently borrowed items")
-    if payload.amount <= 0:
-        raise HttpError(400, "Debt amount must be greater than zero")
-    debt = Debt.objects.create(
-        borrower=borrower,
-        borrow_item=borrow_item,
-        amount=Decimal(str(payload.amount)),
-        reason=payload.reason or "Manual fine",
-        created_by=request.user if request.user.is_authenticated else None,
-    )
-    notify_borrower(
-        borrower,
-        "Debt created",
-        f"A debt of {debt.amount} was created for {borrow_item.item.item_name}.",
-    )
-    return {
-        "id": debt.id,
-        "borrower": borrower.full_name,
-        "borrower_code": borrower.borrower_code,
-        "borrow_item_id": borrow_item.id,
-        "item": borrow_item.item.item_name,
-        "fine": float(debt.amount),
-        "reason": debt.reason,
-        "status": debt.status,
-    }
-
-@api.delete("/fines/{fine_id}")
-def mark_fine_paid(request, fine_id: int):
-    debt = get_object_or_404(Debt.objects.select_related("borrower", "borrow_item__item"), id=fine_id)
+@api.delete("/payment-requests/{debt_id}")
+def mark_payment_request_paid(request, debt_id: int):
+    debt = get_object_or_404(Debt.objects.select_related("borrower", "borrow_item__item"), id=debt_id)
     debt.mark_paid()
     notify_borrower(
         debt.borrower,
         "Debt paid",
-        f"Debt #{debt.id} for {debt.borrow_item.item.item_name} has been marked as paid.",
+        f"Công nợ #{debt.id} cho {debt.borrow_item.item.item_name} đã được đánh dấu là đã thanh toán.",
     )
-    return {"message": "Fine marked as paid", "id": debt.id, "status": debt.status}
+    return {"message": "Công nợ đã được đánh dấu là đã thanh toán", "id": debt.id, "status": debt.status}
 
-@api.get("/fines/summary")
-def fine_summary(request):
+@api.get("/payment-requests/summary")
+def payment_request_summary(request):
     total = sum(debt.amount for debt in Debt.objects.filter(status="UNPAID"))
     return {
-        "total_fines": float(total),
+        "total_payment_request_amount": total,
         "records": Debt.objects.filter(status="UNPAID").count()
     }
 
@@ -1002,7 +1414,7 @@ def due_maintenance(request):
             "item": r.item.item_name,
             "maintenance_date": r.maintenance_date,
             "next_maintenance_date": r.next_maintenance_date,
-            "cost": float(r.cost),
+            "cost": r.cost,
             "overdue_days": overdue_days
         })
     return result
@@ -1013,7 +1425,7 @@ def maintenance_stats(request):
     return {
         "total_records": MaintenanceRecord.objects.count(),
         "due_now": MaintenanceRecord.objects.filter(next_maintenance_date__lte=today).count(),
-        "total_cost": float(sum(r.cost for r in MaintenanceRecord.objects.all()))
+        "total_cost": sum(r.cost for r in MaintenanceRecord.objects.all())
     }
 
 
@@ -1072,7 +1484,7 @@ def notification_stats(request):
 def borrower_debt(request, borrower_code: str):
     borrower = Borrower.objects.get(borrower_code=borrower_code)
     total_debt = sum(debt.amount for debt in Debt.objects.filter(borrower=borrower, status="UNPAID"))
-    return {"borrower_code": borrower.borrower_code, "borrower_name": borrower.full_name, "total_debt": float(total_debt)}
+    return {"borrower_code": borrower.borrower_code, "borrower_name": borrower.full_name, "total_debt": total_debt}
 
 @api.get("/borrowers/{borrower_code}/history")
 def borrower_history(request, borrower_code: str):
@@ -1106,7 +1518,7 @@ def dashboard_v2(request):
         "notifications": Notification.objects.count(),
         "unread_notifications": Notification.objects.filter(is_read=False).count(),
         "maintenance_due": MaintenanceRecord.objects.filter(next_maintenance_date__lte=today).count(),
-        "total_fines": float(sum(debt.amount for debt in Debt.objects.filter(status="UNPAID"))),
+        "total_payment_request_amount": sum(debt.amount for debt in Debt.objects.filter(status="UNPAID")),
         "outstanding_debts": Debt.objects.filter(status="UNPAID").count(),
     }
 
@@ -1138,8 +1550,8 @@ def admin_dashboard(request):
 def dashboard_kpi(request):
     total_val = sum(stock.total_quantity * stock.item.purchase_price for stock in ItemStock.objects.all())
     return {
-        "inventory_value": float(total_val),
-        "total_fines": float(sum(f.amount for f in Debt.objects.filter(status="UNPAID"))),
+        "inventory_value": total_val,
+        "total_payment_request_amount": sum(debt.amount for debt in Debt.objects.filter(status="UNPAID")),
         "borrow_requests": BorrowRequest.objects.count(),
         "active_loans": BorrowRequest.objects.filter(status="APPROVED").count()
     }
@@ -1173,14 +1585,14 @@ def inventory_value(request):
         details.append({
             "item": stock.item.item_name,
             "quantity": stock.total_quantity,
-            "unit_price": float(stock.item.purchase_price),
-            "value": float(value)
+            "unit_price": stock.item.purchase_price,
+            "value": value
         })
-    return {"total_inventory_value": float(total_value), "details": details}
+    return {"total_inventory_value": total_value, "details": details}
 
 @api.get("/reports/maintenance-cost")
 def maintenance_cost(request):
-    return {"total_maintenance_cost": float(sum(record.cost for record in MaintenanceRecord.objects.all()))}
+    return {"total_maintenance_cost": sum(record.cost for record in MaintenanceRecord.objects.all())}
 
 @api.get("/reports/category-summary")
 def category_summary(request):
@@ -1219,7 +1631,7 @@ def room_inventory_value(request):
     result = []
     for room in Room.objects.all():
         val = sum(s.total_quantity * s.item.purchase_price for s in ItemStock.objects.filter(room=room))
-        result.append({"room": room.room_name, "inventory_value": float(val)})
+        result.append({"room": room.room_name, "inventory_value": val})
     return result
 
 @api.get("/reports/supplier-summary")
@@ -1240,9 +1652,9 @@ def user_roles(request):
 @api.get("/reports/top-debtors")
 def top_debtors(request):
     data = {}
-    for fine in Debt.objects.filter(status="UNPAID").select_related("borrower"):
-        name = fine.borrower.full_name
-        data[name] = data.get(name, 0) + float(fine.amount)
+    for debt in Debt.objects.filter(status="UNPAID").select_related("borrower"):
+        name = debt.borrower.full_name
+        data[name] = data.get(name, 0) + debt.amount
     result = [{"borrower": name, "debt": debt} for name, debt in data.items()]
     result.sort(key=lambda x: x["debt"], reverse=True)
     return result[:5]
@@ -1253,7 +1665,7 @@ def report_debtors(request):
     for b in Borrower.objects.all():
         total = sum(f.amount for f in Debt.objects.filter(borrower=b, status="UNPAID"))
         if total > 0:
-            result.append({"borrower_code": b.borrower_code, "borrower_name": b.full_name, "debt": float(total)})
+            result.append({"borrower_code": b.borrower_code, "borrower_name": b.full_name, "debt": total})
     result.sort(key=lambda x: x["debt"], reverse=True)
     return result
 

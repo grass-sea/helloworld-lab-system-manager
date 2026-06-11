@@ -1,4 +1,5 @@
 import type { Debt } from "../../types/debt";
+import { formatVnd } from "../../utils/currency";
 
 interface Props {
   debts: Debt[];
@@ -28,15 +29,19 @@ export default function DebtTable({
         >
           <tr>
             <th className="p-4 text-left">
-              Equipment
+              Thiết bị
             </th>
 
             <th className="p-4 text-left">
-              Due Date
+              Trạng thái thanh toán
             </th>
 
             <th className="p-4 text-left">
-              Remaining
+              Tình trạng
+            </th>
+
+            <th className="p-4 text-left">
+              Số tiền
             </th>
           </tr>
         </thead>
@@ -67,11 +72,13 @@ export default function DebtTable({
                   }
                 >
                   {item.daysLeft < 0
-                    ? `${Math.abs(
-                        item.daysLeft
-                      )} days overdue`
-                    : `${item.daysLeft} days left`}
+                    ? "Chưa thanh toán"
+                    : `Còn ${item.daysLeft} ngày`}
                 </span>
+              </td>
+
+              <td className="p-4 font-bold text-rose-600">
+                {formatVnd(item.amount)}
               </td>
             </tr>
           ))}

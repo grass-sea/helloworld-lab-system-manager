@@ -11,10 +11,13 @@ import StudentDashboard from "../pages/student/Dashboard";
 import EquipmentPage from "../pages/student/EquipmentPage";
 import HistoryPage from "../pages/student/HistoryPage";
 import DebtPage from "../pages/student/DebtPage";
+import ProfilePage from "../pages/student/ProfilePage";
 
 import StaffDashboard from "../pages/staff/StaffDashboard";
 import EquipmentManagementPage from "../pages/staff/EquipmentManagementPage";
 import StudentManagementPage from "../pages/staff/StudentManagementPage";
+import BlockedStudentsPage from "../pages/staff/BlockedStudentsPage";
+import StudentDetailPage from "../pages/staff/StudentDetailPage";
 import RequestManagementPage from "../pages/staff/RequestManagementPage";
 import DebtManagementPage from "../pages/staff/DebtManagementPage";
 
@@ -68,6 +71,12 @@ export default function AppRoutes() {
           <DebtPage />
         </ProtectedRoute>
       } />
+      <Route path="/student/profile" element={
+        <ProtectedRoute allowedRoles={["BORROWER", "STUDENT", "LECTURER", "RESEARCHER"]}>
+          <ProfilePage />
+        </ProtectedRoute>
+      } />
+      <Route path="/profile" element={<Navigate to="/student/profile" replace />} />
 
       {/* ================= ROUTES CỦA STAFF ================= */}
       <Route path="/staff" element={
@@ -83,6 +92,16 @@ export default function AppRoutes() {
       <Route path="/staff/students" element={
         <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
           <StudentManagementPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/staff/students/blocked" element={
+        <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
+          <BlockedStudentsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/staff/students/:studentCode" element={
+        <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
+          <StudentDetailPage />
         </ProtectedRoute>
       } />
       <Route path="/staff/requests" element={

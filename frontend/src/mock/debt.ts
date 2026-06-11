@@ -12,7 +12,7 @@ export const debtMock: Debt[] = [
 
     daysLeft: 5,
 
-    fine: 0,
+    amount: 0,
 
     status: "ACTIVE",
   },
@@ -28,7 +28,7 @@ export const debtMock: Debt[] = [
 
     daysLeft: -10,
 
-    fine: 100000,
+    amount: 100000,
 
     status: "OVERDUE",
   },

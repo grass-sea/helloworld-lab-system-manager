@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { 
   LayoutDashboard, PackageSearch, History, WalletCards, 
-  LogOut, Users, FileText, Database, ShieldAlert
+  LogOut, Users, FileText, Database, ShieldAlert, UserCircle
 } from "lucide-react";
 import LanguageSelector from "../components/common/LanguageSelector";
 import { useI18n } from "../context/I18nContext";
@@ -51,7 +51,7 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
     { name: t("equipment"), path: "/staff/equipment", icon: Database },
     { name: t("requests"), path: "/staff/requests", icon: FileText, badge: pendingRequests },
     { name: t("students"), path: "/staff/students", icon: Users },
-    { name: t("fines"), path: "/staff/debts", icon: ShieldAlert },
+    { name: t("paymentRequests"), path: "/staff/debts", icon: ShieldAlert },
   ];
 
   const menuItems = isStaff ? staffMenu : studentMenu;
@@ -116,6 +116,14 @@ export default function DashboardLayout({ children }: { children?: ReactNode }) 
               <p className="text-xs text-gray-500 truncate">{user?.email}</p>
             </div>
           </div>
+          {!isStaff && (
+            <button
+              onClick={() => navigate("/student/profile")}
+              className="mb-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 transition-colors"
+            >
+              <UserCircle size={16} /> Profile
+            </button>
+          )}
           <button 
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors"

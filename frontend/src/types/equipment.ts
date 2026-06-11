@@ -1,6 +1,7 @@
 export interface Equipment {
   id: string;
   db_id?: number;
+  equipmentId?: string;
   name: string;
   category: string;
   status: "AVAILABLE" | "IN_USE" | "OUT_OF_STOCK";

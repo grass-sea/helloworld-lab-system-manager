@@ -1,4 +1,5 @@
 import type { Equipment } from "../../types/equipment";
+import { formatVnd } from "../../utils/currency";
 
 interface Props {
   equipment: Equipment[];
@@ -16,7 +17,7 @@ export default function StaffEquipmentTable({
       <table className="w-full border-collapse">
         <thead className="bg-gray-50 border-b border-gray-200">
           <tr className="text-xs font-semibold text-gray-500 uppercase tracking-wider text-left">
-            <th className="p-4 w-24">ID</th>
+            <th className="p-4 w-32">Equipment ID</th>
             <th className="p-4">Equipment</th>
             <th className="p-4">Category</th>
             <th className="p-4">Quantity</th>
@@ -35,7 +36,7 @@ export default function StaffEquipmentTable({
             >
               {/* Thêm cột ID thiết bị font-mono để chuẩn quản trị */}
               <td className="p-4 text-sm font-mono text-gray-400">
-                {item.id}
+                {item.equipmentId || item.id}
               </td>
 
               <td className="p-4">
@@ -57,7 +58,7 @@ export default function StaffEquipmentTable({
               </td>
 
               <td className="p-4 text-sm text-gray-600">
-                ${item.purchasePrice ?? 0}
+                {formatVnd(item.purchasePrice)}
               </td>
 
               <td className="p-4 text-sm text-gray-600">

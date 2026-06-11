@@ -6,6 +6,7 @@ import EquipmentStatCard from "../../components/cards/EquipmentStatCard";
 import Modal from "../../components/common/Modal";
 import axiosInstance from "../../api/axios";
 import { useI18n } from "../../context/I18nContext";
+import { formatVnd } from "../../utils/currency";
 
 export default function EquipmentPage() {
   const { user } = useApp();
@@ -23,6 +24,7 @@ export default function EquipmentPage() {
       setEquipment(res.data.map((item: any) => ({
         id: item.code,
         db_id: item.id,
+        equipmentId: item.equipment_id,
         name: item.name,
         category: item.category,
         quantity: item.available_quantity ?? 0,
@@ -124,7 +126,7 @@ export default function EquipmentPage() {
           <div><p className="text-sm text-gray-500">{t("supplier")}</p><p className="font-semibold">{selectedEquipment?.supplier || "N/A"}</p></div>
           <div className="grid grid-cols-2 gap-3">
             <div><p className="text-sm text-gray-500">{t("availableStock")}</p><p className="font-semibold">{selectedEquipment?.availableQuantity ?? 0}</p></div>
-            <div><p className="text-sm text-gray-500">{t("purchasePrice")}</p><p className="font-semibold">${selectedEquipment?.purchasePrice ?? 0}</p></div>
+            <div><p className="text-sm text-gray-500">{t("purchasePrice")}</p><p className="font-semibold">{formatVnd(selectedEquipment?.purchasePrice)}</p></div>
           </div>
           <div>
             <p className="text-sm text-gray-500">{t("requiresReturn")}</p>

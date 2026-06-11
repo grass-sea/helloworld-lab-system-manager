@@ -31,7 +31,7 @@ export default function StaffDashboard() {
         setRecentRequests(reqRes.data.slice(0, 6).map((item: any) => ({
           id: item.id,
           studentName: item.borrower,
-          equipment: item.items?.map((requestItem: any) => `${requestItem.item_name} x${requestItem.quantity}`).join(", ") || "No items",
+          equipment: item.items?.map((requestItem: any) => `${requestItem.equipment_id || requestItem.item_name}: ${requestItem.item_name} x${requestItem.quantity}`).join(", ") || "No items",
           status: item.is_overdue ? "OVERDUE" : item.status,
           date: item.request_date?.split("T")[0],
         })));

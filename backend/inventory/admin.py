@@ -122,8 +122,12 @@ class ReturnRecordItemAdmin(admin.ModelAdmin):
         "borrow_item",
         "quantity",
         "returned_condition",
-        "fine_amount",
+        "payment_amount",
     )
+
+    @admin.display(description="Payment amount")
+    def payment_amount(self, obj):
+        return obj.fine_amount
 
 
 @admin.register(MaintenanceRecord)

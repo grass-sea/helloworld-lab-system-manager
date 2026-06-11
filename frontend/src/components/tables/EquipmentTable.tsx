@@ -1,5 +1,6 @@
 import type { Equipment } from "../../types/equipment";
 import StatusBadge from "../common/StatusBadge";
+import { formatVnd } from "../../utils/currency";
 
 interface Props {
   equipment: Equipment[];
@@ -16,7 +17,7 @@ export default function EquipmentTable({
         <thead className="bg-gray-50 border-b border-gray-200">
           <tr>
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Asset
+              Equipment
             </th>
 
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -33,6 +34,10 @@ export default function EquipmentTable({
 
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
               Return
+            </th>
+
+            <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Price
             </th>
 
             <th className="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -61,7 +66,7 @@ export default function EquipmentTable({
                     </p>
 
                     <p className="text-xs text-gray-500 font-mono">
-                      {item.id}
+                      {item.equipmentId || item.id}
                     </p>
                   </div>
                 </td>
@@ -80,6 +85,10 @@ export default function EquipmentTable({
 
                 <td className="p-4 text-sm text-gray-600">
                   {item.requiresReturn ? "Required" : "Purchase"}
+                </td>
+
+                <td className="p-4 text-sm text-gray-600">
+                  {formatVnd(item.purchasePrice)}
                 </td>
 
                 <td className="p-4">
